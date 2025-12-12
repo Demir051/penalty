@@ -32,7 +32,7 @@ const AddUser = () => {
     setMessage({ type: '', text: '' });
     setLoading(true);
     try {
-      await axios.post('/users', form);
+      await axios.post('/api/users', form);
       setMessage({ type: 'success', text: 'Kullanıcı başarıyla eklendi' });
       setForm({ username: '', email: '', fullName: '', password: '', role: 'user' });
     } catch (error) {

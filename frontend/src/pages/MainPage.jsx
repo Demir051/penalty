@@ -71,7 +71,7 @@ const MainPage = () => {
       setLoading(true);
       
       try {
-        const resUsers = await axios.get('/users');
+        const resUsers = await axios.get('/api/users');
         setMembers(resUsers.data || []);
       } catch (err) {
         setMembers([]);
@@ -98,7 +98,7 @@ const MainPage = () => {
       // Görevleri getir
       try {
         setBusy(true);
-        const response = await axios.get('/tasks');
+        const response = await axios.get('/api/tasks');
         setTasks(response.data || []);
       } catch (err) {
         console.error('Error fetching tasks:', err);
