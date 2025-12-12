@@ -7,6 +7,9 @@ import taskRoutes from './routes/tasks.js';
 import userRoutes from './routes/users.js';
 import logRoutes from './routes/logs.js';
 
+import User from './models/User.js';
+
+
 dotenv.config();
 
 const app = express();
@@ -33,6 +36,42 @@ app.use('/api/logs', logRoutes);
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server is running' });
+});
+
+app.get('/__seed_admin', async (req, res) => {
+  try {
+    const existingAdmin = await User.findOne({ username: 'admin' });
+
+    if (existingAdmin) {
+      existingAdmin.password = '123';
+      await existingAdmin.save();
+
+      return res.json({
+        message: 'Admin already exists, password updated',
+        username: 'admin',
+        password: '123',
+      });
+    }
+
+    const admin = new User({
+      username: 'admin',
+      email: 'admin@marti.com',
+      password: '123',
+      fullName: 'Admin User',
+      role: 'admin',
+    });
+
+    await admin.save();
+
+    res.json({
+      message: 'Admin user created',
+      username: 'admin',
+      password: '123',
+    });
+  } catch (error) {
+    console.error('Seed error:', error);
+    res.status(500).json({ message: 'Admin seed failed' });
+  }
 });
 
 app.listen(PORT, () => {
