@@ -2,14 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
 // Base URL - sadece domain, path'lerde /api kullanılacak
-const apiBaseUrl = import.meta.env.VITE_API_URL;
-if (apiBaseUrl) {
-  // Eğer VITE_API_URL /api ile bitiyorsa onu kaldır
-  axios.defaults.baseURL = apiBaseUrl.endsWith('/api') ? apiBaseUrl.slice(0, -4) : apiBaseUrl.replace(/\/api$/, '');
-} else {
-  // Development için
-  axios.defaults.baseURL = 'http://localhost:5000';
-}
+axios.defaults.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const AuthContext = createContext();
 
