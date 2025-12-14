@@ -13,7 +13,9 @@ import {
   Button,
   Divider,
   Chip,
+  CircularProgress,
 } from '@mui/material';
+import { useAuth } from '../context/AuthContext';
 import {
   Notifications,
   Close,
@@ -31,6 +33,7 @@ const NotificationPanel = ({ open, onClose }) => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     if (open) {
@@ -53,7 +56,9 @@ const NotificationPanel = ({ open, onClose }) => {
       setNotifications(response.data);
       setUnreadCount(response.data.filter(n => !n.read).length);
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      if (import.meta.env.DEV) {
+        console.error('Error fetching notifications:', error);
+      }
     } finally {
       setLoading(false);
     }
@@ -64,7 +69,9 @@ const NotificationPanel = ({ open, onClose }) => {
       const response = await axios.get('/api/notifications/unread-count');
       setUnreadCount(response.data.count);
     } catch (error) {
-      console.error('Error fetching unread count:', error);
+      if (import.meta.env.DEV) {
+        console.error('Error fetching unread count:', error);
+      }
     }
   };
 
@@ -76,7 +83,9 @@ const NotificationPanel = ({ open, onClose }) => {
       );
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
-      console.error('Error marking notification as read:', error);
+      if (import.meta.env.DEV) {
+        console.error('Error marking notification as read:', error);
+      }
     }
   };
 
@@ -86,77 +95,174 @@ const NotificationPanel = ({ open, onClose }) => {
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
     } catch (error) {
-      console.error('Error marking all as read:', error);
+      if (import.meta.env.DEV) {
+        console.error('Error marking all as read:', error);
+      }
     }
   };
 
   return (
-    <Drawer anchor="right" open={open} onClose={onClose}>
-      <Box sx={{ width: 400, p: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">Bildirimler</Typography>
-          <Box>
-            {unreadCount > 0 && (
-              <Button size="small" onClick={markAllAsRead} sx={{ mr: 1 }}>
-                Tümünü Okundu İşaretle
-              </Button>
-            )}
-            <IconButton onClick={onClose}>
+    <Drawer 
+      anchor="right" 
+      open={open} 
+      onClose={onClose}
+      PaperProps={{
+        sx: {
+          width: 420,
+          bgcolor: 'background.paper',
+        },
+      }}
+    >
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'background.paper' }}>
+        {/* Header */}
+        <Box sx={{ 
+          p: 2, 
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="h6" fontWeight="bold">Bildirimler</Typography>
+            <IconButton size="small" onClick={onClose}>
               <Close />
             </IconButton>
           </Box>
+          {unreadCount > 0 && (
+            <Button 
+              size="small" 
+              variant="outlined"
+              onClick={markAllAsRead} 
+              sx={{ mt: 1 }}
+            >
+              Tümünü Okundu İşaretle ({unreadCount})
+            </Button>
+          )}
         </Box>
-        <Divider sx={{ mb: 2 }} />
-        {loading ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <Typography>Yükleniyor...</Typography>
-          </Box>
-        ) : notifications.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <Typography color="text.secondary">Bildirim yok</Typography>
-          </Box>
-        ) : (
-          <List>
-            {notifications.map((notification) => (
-              <ListItem
-                key={notification._id}
-                sx={{
-                  bgcolor: notification.read ? 'transparent' : 'action.selected',
-                  borderRadius: 1,
-                  mb: 1,
-                  cursor: 'pointer',
-                }}
-                onClick={() => !notification.read && markAsRead(notification._id)}
-              >
-                <ListItemAvatar>
-                  <Avatar src={notification.fromUser?.profileImage}>
-                    {notification.fromUserName?.[0]?.toUpperCase()}
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="subtitle2">{notification.title}</Typography>
-                      {!notification.read && (
-                        <Chip label="Yeni" size="small" color="primary" />
-                      )}
-                    </Box>
+
+        {/* Content */}
+        <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+          {loading ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <CircularProgress size={24} />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Yükleniyor...
+              </Typography>
+            </Box>
+          ) : notifications.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 8 }}>
+              <Notifications sx={{ fontSize: 48, color: 'text.secondary', mb: 1, opacity: 0.5 }} />
+              <Typography variant="body1" color="text.secondary" fontWeight="medium">
+                Bildirim yok
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Yeni bildirimler burada görünecek
+              </Typography>
+            </Box>
+          ) : (
+            <List sx={{ p: 0 }}>
+              {notifications.map((notification) => {
+                // Determine background color based on notification type
+                let bgColor = notification.read ? 'transparent' : 'action.selected';
+                
+                if (!notification.read) {
+                  if (notification.type === 'mention') {
+                    // Mention: different color if it's me being mentioned
+                    if (notification.fromUser?._id === user?.id || notification.fromUser === user?.id) {
+                      // I mentioned someone else - blue tint
+                      bgColor = 'rgba(33, 150, 243, 0.08)';
+                    } else {
+                      // Someone mentioned me - red tint
+                      bgColor = 'rgba(244, 67, 54, 0.08)';
+                    }
+                  } else if (notification.type === 'task_comment') {
+                    // Comment: different color (green tint)
+                    bgColor = 'rgba(76, 175, 80, 0.08)';
                   }
-                  secondary={
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
-                        {notification.message}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {dayjs(notification.createdAt).fromNow()}
-                      </Typography>
-                    </Box>
-                  }
-                />
-              </ListItem>
-            ))}
-          </List>
-        )}
+                }
+                
+                return (
+                  <ListItem
+                    key={notification._id}
+                    sx={{
+                      bgcolor: bgColor,
+                      borderRadius: 2,
+                      mb: 1,
+                      cursor: 'pointer',
+                      border: !notification.read ? '1px solid' : '1px solid transparent',
+                      borderColor: !notification.read 
+                        ? (notification.type === 'mention' 
+                          ? (notification.fromUser?._id === user?.id || notification.fromUser === user?.id 
+                            ? 'primary.main' 
+                            : 'error.main')
+                          : notification.type === 'task_comment' 
+                            ? 'success.main' 
+                            : 'primary.main')
+                        : 'transparent',
+                      '&:hover': {
+                        bgcolor: notification.read ? 'action.hover' : bgColor,
+                      },
+                      transition: 'all 0.2s',
+                    }}
+                    onClick={() => !notification.read && markAsRead(notification._id)}
+                  >
+                    <ListItemAvatar>
+                      <Avatar 
+                        src={notification.fromUserProfileImage || notification.fromUser?.profileImage}
+                        sx={{ 
+                          width: 40, 
+                          height: 40,
+                          border: !notification.read ? '2px solid' : 'none',
+                          borderColor: notification.type === 'mention'
+                            ? (notification.fromUser?._id === user?.id || notification.fromUser === user?.id
+                              ? 'primary.main'
+                              : 'error.main')
+                            : 'success.main',
+                        }}
+                      >
+                        {notification.fromUserName?.[0]?.toUpperCase()}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={
+                        <>
+                          <Typography component="span" variant="subtitle2" fontWeight="bold" sx={{ mr: 1 }}>
+                            {notification.title}
+                          </Typography>
+                          {!notification.read && (
+                            <Chip 
+                              label="Yeni" 
+                              size="small" 
+                              color="primary"
+                              sx={{ height: 20, fontSize: '0.7rem', mr: 0.5 }}
+                            />
+                          )}
+                          {notification.isGroupMention && (
+                            <Chip 
+                              label={`@${notification.groupRole}`} 
+                              size="small" 
+                              color="secondary"
+                              sx={{ height: 20, fontSize: '0.7rem' }}
+                            />
+                          )}
+                        </>
+                      }
+                      secondary={
+                        <>
+                          <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            {notification.message}
+                          </Typography>
+                          <Typography component="span" variant="caption" color="text.secondary">
+                            {dayjs(notification.createdAt).format('DD.MM.YYYY HH:mm')} • {dayjs(notification.createdAt).fromNow()}
+                          </Typography>
+                        </>
+                      }
+                    />
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </Box>
       </Box>
     </Drawer>
   );

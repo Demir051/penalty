@@ -29,6 +29,7 @@ import {
   LightMode,
   AdminPanelSettings,
   Notifications as NotificationsIcon,
+  People,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import NotificationPanel from '../components/NotificationPanel';
@@ -77,6 +78,7 @@ const Dashboard = ({ themeMode = 'light', onToggleTheme }) => {
         { text: 'Destek Mailmatik', icon: <Support />, path: '/dashboard/destek-mailmatik' },
         { text: 'Dekont Atıcı', icon: <Receipt />, path: '/dashboard/dekont-atici' },
         { text: 'Görevler', icon: <ListAlt />, path: '/dashboard/tasks' },
+        { text: 'Kullanıcı Yönetimi', icon: <People />, path: '/dashboard/users' },
         { text: 'Loglar', icon: <AdminPanelSettings />, path: '/dashboard/logs' }
       );
     }
@@ -105,7 +107,10 @@ const Dashboard = ({ themeMode = 'light', onToggleTheme }) => {
           const response = await axios.get('/api/notifications/unread-count');
           setUnreadCount(response.data.count);
         } catch (error) {
-          console.error('Error fetching unread count:', error);
+          // Silently fail - notifications are not critical
+          if (import.meta.env.DEV) {
+            console.error('Error fetching unread count:', error);
+          }
         }
       };
 

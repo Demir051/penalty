@@ -62,12 +62,42 @@ router.get('/weekly-total', authenticateToken, async (req, res) => {
       date: { $gte: weekStart },
     });
     
-    const total = penalties.reduce((sum, p) => sum + p.count, 0);
+    const total = penalties.reduce((sum, p) => sum + (p.count || 0), 0);
     
     res.json({ total, weekStart });
   } catch (error) {
     console.error('Error fetching weekly total:', error);
     res.status(500).json({ message: 'Error fetching weekly total' });
+  }
+});
+
+// Get weekly data for chart (last 7 days)
+router.get('/weekly', authenticateToken, async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weeklyData = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const nextDay = new Date(date);
+      nextDay.setDate(nextDay.getDate() + 1);
+      
+      const penalty = await Penalty.findOne({
+        date: { $gte: date, $lt: nextDay },
+      });
+      
+      weeklyData.push({
+        date: date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }),
+        ceza: penalty ? penalty.count : 0,
+      });
+    }
+    
+    res.json({ weeklyData });
+  } catch (error) {
+    console.error('Error fetching weekly data:', error);
+    res.status(500).json({ message: 'Error fetching weekly data' });
   }
 });
 

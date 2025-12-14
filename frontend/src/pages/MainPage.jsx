@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -24,6 +24,8 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
+  Pagination,
+  Fab,
 } from '@mui/material';
 import {
   People,
@@ -65,21 +67,37 @@ const MainPage = () => {
   const [busy, setBusy] = useState(false);
   const [penaltyDialog, setPenaltyDialog] = useState(false);
   const [penaltyInput, setPenaltyInput] = useState('');
+  const [memberPage, setMemberPage] = useState(1);
+  const membersPerPage = 4;
   const { user } = useAuth();
 
-  const pendingTasks = tasks.filter((t) => !t.completed);
-  const completedTasks = tasks.filter((t) => t.completed);
-  const criticalTasks = tasks.filter((t) => !t.completed && t.priority === 'critical');
-  const activeMembers = members.filter((m) => m.isCurrentlyActive).length;
+  // Memoize computed values to prevent unnecessary recalculations
+  const pendingTasks = useMemo(() => tasks.filter((t) => !t.completed), [tasks]);
+  const completedTasks = useMemo(() => tasks.filter((t) => t.completed), [tasks]);
+  const criticalTasks = useMemo(() => tasks.filter((t) => !t.completed && t.priority === 'critical'), [tasks]);
+  const activeMembers = useMemo(() => members.filter((m) => m.isCurrentlyActive).length, [members]);
+  
+  // Sort members: active first, then by role (admin > ceza > uye), then alphabetically
+  const sortedMembers = useMemo(() => {
+    const roleOrder = { admin: 0, ceza: 1, uye: 2 };
+    
+    return [...members].sort((a, b) => {
+      // First: Active members first
+      if (a.isCurrentlyActive && !b.isCurrentlyActive) return -1;
+      if (!a.isCurrentlyActive && b.isCurrentlyActive) return 1;
+      
+      // Second: Sort by role (admin > ceza > uye)
+      const roleA = roleOrder[a.role] ?? 3;
+      const roleB = roleOrder[b.role] ?? 3;
+      if (roleA !== roleB) return roleA - roleB;
+      
+      // Third: If same status and role, sort alphabetically by name
+      return (a.fullName || a.username || '').localeCompare(b.fullName || b.username || '');
+    });
+  }, [members]);
 
-  useEffect(() => {
-    fetchDashboardData();
-    // Her 30 saniyede bir güncelle
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchDashboardData = async () => {
+  // Memoize fetch function to prevent unnecessary re-renders
+  const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -99,7 +117,10 @@ const MainPage = () => {
           todayPenalties: todayPenalty.data.count || 0,
         }));
       } catch (err) {
-        console.error('Error fetching today penalty:', err);
+        // Silently fail for optional data
+        if (import.meta.env.DEV) {
+          console.error('Error fetching today penalty:', err);
+        }
       }
 
       // Haftalık toplam
@@ -110,43 +131,58 @@ const MainPage = () => {
           weeklyTotal: weeklyTotal.data.total || 0,
         }));
       } catch (err) {
-        console.error('Error fetching weekly total:', err);
-      }
-
-      // Haftalık grafik - sabit kalacak (sadece ilk yüklemede)
-      if (stats.weeklyData.length === 0) {
-        const today = new Date();
-        const weeklyData = [];
-        for (let i = 6; i >= 0; i--) {
-          const date = new Date(today);
-          date.setDate(date.getDate() - i);
-          weeklyData.push({
-            date: date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }),
-            ceza: 0, // Sabit kalacak
-          });
+        // Silently fail for optional data
+        if (import.meta.env.DEV) {
+          console.error('Error fetching weekly total:', err);
         }
-        setStats(prev => ({ ...prev, weeklyData }));
       }
 
-      // Görevleri getir
+      // Haftalık grafik verilerini getir
       try {
-        setBusy(true);
-        const response = await axios.get('/api/tasks');
-        setTasks(response.data || []);
+        const weeklyResponse = await axios.get('/api/penalties/weekly');
+        setStats(prev => ({
+          ...prev,
+          weeklyData: weeklyResponse.data.weeklyData || [],
+        }));
       } catch (err) {
-        console.error('Error fetching tasks:', err);
-      } finally {
-        setBusy(false);
+        // Silently fail for optional data
+        if (import.meta.env.DEV) {
+          console.error('Error fetching weekly data:', err);
+        }
+      }
+
+      // Görevleri getir (only if user has access)
+      if (user?.role !== 'uye') {
+        try {
+          setBusy(true);
+          const response = await axios.get('/api/tasks');
+          setTasks(response.data || []);
+        } catch (err) {
+          if (import.meta.env.DEV) {
+            console.error('Error fetching tasks:', err);
+          }
+        } finally {
+          setBusy(false);
+        }
       }
 
       setError('');
     } catch (err) {
-      console.error('Error fetching dashboard data:', err);
+      if (import.meta.env.DEV) {
+        console.error('Error fetching dashboard data:', err);
+      }
       setError('Veriler yüklenirken bir hata oluştu');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+    // Her 30 saniyede bir güncelle
+    const interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
 
   const handleUpdatePenalty = async () => {
     const count = parseInt(penaltyInput);
@@ -227,18 +263,6 @@ const MainPage = () => {
                 </Box>
                 <Gavel sx={{ fontSize: 40, opacity: 0.8 }} />
               </Box>
-              {(user?.role === 'admin' || user?.role === 'ceza') && (
-                <IconButton
-                  size="small"
-                  sx={{ position: 'absolute', top: 8, right: 8, color: 'white' }}
-                  onClick={() => {
-                    setPenaltyInput(stats.todayPenalties.toString());
-                    setPenaltyDialog(true);
-                  }}
-                >
-                  <Edit fontSize="small" />
-                </IconButton>
-              )}
             </CardContent>
           </Card>
         </Grid>
@@ -313,7 +337,10 @@ const MainPage = () => {
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
-                <YAxis />
+                <YAxis 
+                  domain={[0, 60]}
+                  ticks={[0, 10, 20, 30, 40, 50, 60]}
+                />
                 <Tooltip />
                 <Legend />
                 <Line
@@ -344,7 +371,7 @@ const MainPage = () => {
                 <Pie
                   data={[
                     { name: 'Bekleyen Görevler', value: pendingTasks.length, color: '#ef4444' },
-                    { name: 'Tamamlanan Görevler', value: completedTasks.length, color: '#22c55e' },
+                    { name: 'Biten Görevler', value: completedTasks.length, color: '#22c55e' },
                     { name: 'Bugünkü Ceza', value: stats.todayPenalties, color: '#8884d8' },
                   ]}
                   cx="50%"
@@ -380,138 +407,143 @@ const MainPage = () => {
               </Typography>
             </Box>
             <List>
-              {members.map((member, index) => (
-                <Box key={member._id || member.id || member.username}>
-                  <ListItem>
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: 'primary.main' }}>
-                        {getInitials(member.fullName)}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={member.fullName}
-                      secondary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                          <Chip
-                            label={member.isCurrentlyActive ? 'Aktif' : 'Pasif'}
-                            size="small"
-                            color={member.isCurrentlyActive ? 'success' : 'default'}
-                          />
-                          <Chip
-                            label={member.role === 'admin' ? 'Admin' : member.role === 'ceza' ? 'Ceza' : 'Üye'}
-                            size="small"
-                            color={member.role === 'admin' ? 'primary' : member.role === 'ceza' ? 'warning' : 'default'}
-                          />
-                          <Typography variant="caption" color="text.secondary">
-                            {member.email}
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                  </ListItem>
-                  {index < members.length - 1 && <Divider />}
-                </Box>
-              ))}
-              {members.length === 0 && (
+              {sortedMembers
+                .slice((memberPage - 1) * membersPerPage, memberPage * membersPerPage)
+                .map((member, index) => (
+                  <Box key={member._id || member.id || member.username}>
+                    <ListItem>
+                      <ListItemAvatar>
+                        <Avatar src={member.profileImage} sx={{ bgcolor: 'primary.main' }}>
+                          {getInitials(member.fullName)}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={member.fullName}
+                        secondary={
+                          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                            <Chip
+                              component="span"
+                              label={member.isCurrentlyActive ? 'Aktif' : 'Pasif'}
+                              size="small"
+                              color={member.isCurrentlyActive ? 'success' : 'default'}
+                            />
+                            <Chip
+                              component="span"
+                              label={member.role === 'admin' ? 'Admin' : member.role === 'ceza' ? 'Ceza' : 'Üye'}
+                              size="small"
+                              color={member.role === 'admin' ? 'primary' : member.role === 'ceza' ? 'warning' : 'default'}
+                            />
+                            <Typography component="span" variant="caption" color="text.secondary">
+                              {member.email}
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    </ListItem>
+                    {index < Math.min(membersPerPage, sortedMembers.length - (memberPage - 1) * membersPerPage) - 1 && <Divider />}
+                  </Box>
+                ))}
+              {sortedMembers.length === 0 && (
                 <Typography variant="body2" color="text.secondary">
                   Kullanıcı listesi alınamadı.
                 </Typography>
               )}
             </List>
+            {sortedMembers.length > membersPerPage && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                <Pagination
+                  count={Math.ceil(sortedMembers.length / membersPerPage)}
+                  page={memberPage}
+                  onChange={(e, page) => setMemberPage(page)}
+                  size="small"
+                  color="primary"
+                />
+              </Box>
+            )}
           </Paper>
         </Grid>
 
-        {/* Önemli Görevler */}
-        <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3, height: '100%' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-              <Warning sx={{ mr: 1, color: 'primary.main' }} />
-              <Typography variant="h6" fontWeight="bold">
-                Önemli Görevler (Kritik)
-              </Typography>
-            </Box>
-            <List>
-              {criticalTasks.map((task, index) => (
-                <Box key={task._id}>
-                  <ListItem
-                    sx={{
-                      bgcolor: task.completed ? 'action.hover' : 'transparent',
-                      borderRadius: 1,
-                      mb: 1,
-                    }}
-                  >
-                    <ListItemAvatar>
-                      {task.completed ? (
-                        <CheckCircle color="success" />
-                      ) : (
-                        <Schedule color="action" />
-                      )}
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography
-                            variant="body1"
-                            sx={{
-                              textDecoration: task.completed ? 'line-through' : 'none',
-                              opacity: task.completed ? 0.6 : 1,
-                            }}
-                          >
-                            {task.content}
-                          </Typography>
-                          <Chip
-                            label="Kritik"
-                            size="small"
-                            color="error"
-                          />
-                        </Box>
-                      }
-                    />
-                  </ListItem>
-                  {index < criticalTasks.length - 1 && <Divider />}
-                </Box>
-              ))}
-              {criticalTasks.length === 0 && (
-                <Typography variant="body2" color="text.secondary">
-                  Kritik öncelikli görev yok.
-                </Typography>
-              )}
-            </List>
-          </Paper>
-        </Grid>
-
-        {/* Son Görevler */}
-        {tasks.length > 0 && (
-          <Grid item xs={12}>
-            <Paper sx={{ p: 3 }}>
+        {/* Önemli Görevler - Sadece admin ve ceza rolü görebilir */}
+        {(user?.role === 'admin' || user?.role === 'ceza') && (
+          <Grid item xs={12} md={8}>
+            <Paper sx={{ p: 3, height: '100%' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <Assignment sx={{ mr: 1, color: 'primary.main' }} />
+                <Warning sx={{ mr: 1, color: 'primary.main' }} />
                 <Typography variant="h6" fontWeight="bold">
-                  Son Görevler
+                  Önemli Görevler (Kritik)
                 </Typography>
               </Box>
               <List>
-                {tasks.map((task, index) => (
+                {criticalTasks.map((task, index) => (
                   <Box key={task._id}>
-                    <ListItem>
+                    <ListItem
+                      sx={{
+                        bgcolor: task.completed ? 'action.hover' : 'transparent',
+                        borderRadius: 1,
+                        mb: 1,
+                      }}
+                    >
                       <ListItemAvatar>
-                        <Avatar sx={{ bgcolor: 'primary.main' }}>
-                          {task.authorName?.[0]?.toUpperCase() || 'U'}
-                        </Avatar>
+                        {task.completed ? (
+                          <CheckCircle color="success" />
+                        ) : (
+                          <Schedule color="action" />
+                        )}
                       </ListItemAvatar>
                       <ListItemText
-                        primary={task.content}
-                        secondary={`${task.authorName || 'Unknown'} • ${new Date(task.createdAt).toLocaleDateString('tr-TR')}`}
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography
+                              variant="body1"
+                              sx={{
+                                textDecoration: task.completed ? 'line-through' : 'none',
+                                opacity: task.completed ? 0.6 : 1,
+                              }}
+                            >
+                              {task.content}
+                            </Typography>
+                            <Chip
+                              label="Kritik"
+                              size="small"
+                              color="error"
+                            />
+                          </Box>
+                        }
                       />
                     </ListItem>
-                    {index < tasks.length - 1 && <Divider />}
+                    {index < criticalTasks.length - 1 && <Divider />}
                   </Box>
                 ))}
+                {criticalTasks.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">
+                    Kritik öncelikli görev yok.
+                  </Typography>
+                )}
               </List>
             </Paper>
           </Grid>
         )}
       </Grid>
+
+      {/* Modern Ceza Güncelleme Butonu - Floating Action Button */}
+      {(user?.role === 'admin' || user?.role === 'ceza') && (
+        <Fab
+          color="primary"
+          aria-label="edit penalty"
+          sx={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 1000,
+          }}
+          onClick={() => {
+            setPenaltyInput(stats.todayPenalties.toString());
+            setPenaltyDialog(true);
+          }}
+        >
+          <Edit />
+        </Fab>
+      )}
 
       <Dialog open={penaltyDialog} onClose={() => setPenaltyDialog(false)}>
         <DialogTitle>Bugünkü Ceza Sayısını Güncelle</DialogTitle>

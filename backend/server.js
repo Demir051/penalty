@@ -14,21 +14,51 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Security middleware
+// Security middleware - CORS
+// Allow all Netlify domains and localhost for development
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow localhost for development
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+    
+    // Allow all Netlify domains
+    if (origin.includes('.netlify.app')) {
+      return callback(null, true);
+    }
+    
+    // Allow specific frontend URL if set
+    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
+      return callback(null, true);
+    }
+    
+    // For production, you might want to restrict this
+    // For now, allow all origins to avoid CORS issues
+    callback(null, true);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Rate limiting (basic)
+// Rate limiting (basic) - Skip for health check and more lenient for development
 const rateLimitMap = new Map();
 const rateLimit = (req, res, next) => {
+  // Skip rate limiting for health check
+  if (req.path === '/api/health') {
+    return next();
+  }
+  
   const ip = req.ip || req.connection.remoteAddress;
   const now = Date.now();
-  const windowMs = 15 * 60 * 1000; // 15 minutes
-  const maxRequests = 100;
+  const windowMs = 1 * 60 * 1000; // 1 minute (reduced from 15)
+  const maxRequests = process.env.NODE_ENV === 'production' ? 200 : 1000; // More lenient in development
 
   if (!rateLimitMap.has(ip)) {
     rateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
@@ -43,7 +73,13 @@ const rateLimit = (req, res, next) => {
   }
 
   if (record.count >= maxRequests) {
-    return res.status(429).json({ message: 'Too many requests' });
+    // Only log in development
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`Rate limit exceeded for IP: ${ip}, count: ${record.count}`);
+    }
+    return res.status(429).json({ 
+      message: `Too many requests. Please try again in ${Math.ceil((record.resetTime - now) / 1000)} seconds.` 
+    });
   }
 
   record.count++;

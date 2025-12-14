@@ -4,10 +4,10 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
-// Rate limiting for login
+// Rate limiting for login - More lenient
 const loginAttempts = new Map();
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
+const MAX_LOGIN_ATTEMPTS = 10; // Increased from 5
+const LOCKOUT_TIME = 5 * 60 * 1000; // 5 minutes (reduced from 15)
 
 // Login
 router.post('/login', async (req, res) => {
@@ -31,7 +31,6 @@ router.post('/login', async (req, res) => {
 
     const user = await User.findOne({ username });
     if (!user) {
-      console.log(`Login attempt failed: User not found - ${username}`);
       // Increment failed attempts
       attempts.count++;
       if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
@@ -44,7 +43,6 @@ router.post('/login', async (req, res) => {
 
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      console.log(`Login attempt failed: Invalid password for user - ${username}`);
       // Increment failed attempts
       attempts.count++;
       if (attempts.count >= MAX_LOGIN_ATTEMPTS) {

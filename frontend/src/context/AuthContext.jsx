@@ -40,7 +40,6 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      console.log('Attempting login to:', axios.defaults.baseURL);
       const response = await axios.post('/api/auth/login', {
         username,
         password,
@@ -53,12 +52,24 @@ export const AuthProvider = ({ children }) => {
       setUser(user);
       return { success: true };
     } catch (error) {
-      console.error('Login error:', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
+      // Only log errors in development
+      if (import.meta.env.DEV) {
+        console.error('Login error:', error);
+      }
+      
+      let errorMessage = 'Giriş başarısız. Lütfen bağlantınızı kontrol edin ve tekrar deneyin.';
+      
+      if (error.code === 'ERR_NETWORK' || error.message.includes('Network Error')) {
+        errorMessage = 'Bağlantı hatası: Sunucuya ulaşılamıyor. Lütfen backend\'in çalıştığından emin olun.';
+      } else if (error.response) {
+        errorMessage = error.response.data?.message || `Sunucu hatası: ${error.response.status}`;
+      } else if (error.request) {
+        errorMessage = 'Sunucudan yanıt alınamadı. Lütfen backend\'in çalıştığından emin olun.';
+      }
+      
       return {
         success: false,
-        message: error.response?.data?.message || error.message || 'Login failed. Please check your connection and try again.',
+        message: errorMessage,
       };
     }
   };

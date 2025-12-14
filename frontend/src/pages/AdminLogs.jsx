@@ -9,6 +9,7 @@ import {
   CircularProgress,
   Alert,
   Divider,
+  Pagination,
 } from '@mui/material';
 import axios from 'axios';
 import dayjs from 'dayjs';
@@ -19,6 +20,8 @@ const AdminLogs = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const logsPerPage = 20;
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -57,29 +60,41 @@ const AdminLogs = () => {
         </Stack>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         <Stack spacing={2}>
-          {logs.map((log) => (
-            <Box key={log._id} sx={{ p: 2, borderRadius: 1, bgcolor: 'action.hover' }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="subtitle2" fontWeight="bold">
-                  {log.actorName}
+          {logs
+            .slice((page - 1) * logsPerPage, page * logsPerPage)
+            .map((log) => (
+              <Box key={log._id} sx={{ p: 2, borderRadius: 1, bgcolor: 'action.hover' }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="subtitle2" fontWeight="bold">
+                    {log.actorName}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {dayjs(log.createdAt).format('DD.MM.YYYY HH:mm')}
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" sx={{ mt: 0.5 }}>
+                  {log.message}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {dayjs(log.createdAt).format('DD.MM.YYYY HH:mm')}
-                </Typography>
-              </Stack>
-              <Typography variant="body2" sx={{ mt: 0.5 }}>
-                {log.message}
-              </Typography>
-              <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                <Chip label={log.action} size="small" />
-                <Chip label={log.targetType} size="small" variant="outlined" />
-              </Stack>
-            </Box>
-          ))}
+                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                  <Chip label={log.action} size="small" />
+                  <Chip label={log.targetType} size="small" variant="outlined" />
+                </Stack>
+              </Box>
+            ))}
           {logs.length === 0 && !loading && (
             <Typography variant="body2" color="text.secondary">Log bulunamadı.</Typography>
           )}
         </Stack>
+        {logs.length > logsPerPage && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+            <Pagination
+              count={Math.ceil(logs.length / logsPerPage)}
+              page={page}
+              onChange={(e, newPage) => setPage(newPage)}
+              color="primary"
+            />
+          </Box>
+        )}
         <Divider sx={{ mt: 2 }} />
         <Typography variant="caption" color="text.secondary">Sadece adminler görüntüleyebilir.</Typography>
       </Paper>

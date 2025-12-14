@@ -14,9 +14,7 @@ import AccountSettings from './pages/AccountSettings';
 import AddUser from './pages/AddUser';
 import TasksBoard from './pages/TasksBoard';
 import AdminLogs from './pages/AdminLogs';
-
-const theme = createTheme({
-});
+import UserManagement from './pages/UserManagement';
 
 function App() {
   const [mode, setMode] = useState(() => localStorage.getItem('themeMode') || 'light');
@@ -73,6 +71,7 @@ function App() {
           <Route path="dekont-atici" element={<DekontAtıcı />} />
           <Route path="account-settings" element={<AccountSettings />} />
           <Route path="users/new" element={<AddUser />} />
+          <Route path="users" element={<UserManagement />} />
           <Route path="tasks" element={<TasksBoard />} />
           <Route path="logs" element={<AdminLogs />} />
         </Route>

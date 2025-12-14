@@ -155,12 +155,15 @@ const AccountSettings = () => {
                 name="newPassword"
                 type="password"
                 required
+                inputProps={{ minLength: 6 }}
+                helperText="En az 6 karakter olmalıdır"
               />
               <TextField
                 label="Yeni Şifre (Tekrar)"
                 name="confirmPassword"
                 type="password"
                 required
+                inputProps={{ minLength: 6 }}
               />
               <Button type="submit" variant="contained" disabled={loadingPassword}>
                 {loadingPassword ? 'Kaydediliyor...' : 'Şifreyi Güncelle'}

@@ -18,27 +18,62 @@ const extractMentions = (text) => {
   return [...new Set(mentions)]; // Remove duplicates
 };
 
-// Helper function to create notifications for mentions
-const createMentionNotifications = async (taskId, content, fromUser, fromUserName) => {
+// Helper function to create notifications for mentions (including group mentions)
+const createMentionNotifications = async (taskId, content, fromUser, fromUserName, fromUserImage) => {
   const mentions = extractMentions(content);
   if (mentions.length === 0) return;
 
-  const users = await User.find({
-    $or: [
-      { username: { $in: mentions } },
-      { fullName: { $in: mentions } },
-    ],
-  });
+  const notifications = [];
+  const groupRoles = ['üye', 'ceza', 'admin'];
 
-  const notifications = users.map(user => ({
-    userId: user._id,
-    type: 'mention',
-    title: 'Görevde bahsedildiniz',
-    message: `${fromUserName} sizi bir görevde bahsetti: ${content.slice(0, 100)}`,
-    taskId,
-    fromUser: fromUser._id,
-    fromUserName,
-  }));
+  for (const mention of mentions) {
+    // Check if it's a group mention
+    if (groupRoles.includes(mention.toLowerCase())) {
+      const role = mention.toLowerCase();
+      const usersInRole = await User.find({ role });
+      
+      for (const user of usersInRole) {
+        if (user._id.toString() !== fromUser._id.toString()) {
+          notifications.push({
+            toUser: user._id,
+            fromUser: fromUser._id,
+            fromUserName: fromUserName,
+            fromUserProfileImage: fromUserImage,
+            title: 'Grup Etiketlendi',
+            message: `${fromUserName} ${role} rolündeki herkesi bir görevde etiketledi: ${content.slice(0, 100)}`,
+            link: `/dashboard/tasks?taskId=${taskId}`,
+            type: 'mention',
+            isGroupMention: true,
+            groupRole: role,
+          });
+        }
+      }
+    } else {
+      // Individual mention
+      const users = await User.find({
+        $or: [
+          { username: mention },
+          { fullName: mention },
+        ],
+      });
+
+      for (const user of users) {
+        if (user._id.toString() !== fromUser._id.toString()) {
+          notifications.push({
+            toUser: user._id,
+            fromUser: fromUser._id,
+            fromUserName: fromUserName,
+            fromUserProfileImage: fromUserImage,
+            title: 'Görevde bahsedildin!',
+            message: `${fromUserName} seni bir görevde veya yorumda bahsetti.`,
+            link: `/dashboard/tasks?taskId=${taskId}`,
+            type: 'mention',
+            isGroupMention: false,
+          });
+        }
+      }
+    }
+  }
 
   if (notifications.length > 0) {
     await Notification.insertMany(notifications);
@@ -48,6 +83,16 @@ const createMentionNotifications = async (taskId, content, fromUser, fromUserNam
 // Get all tasks (feed)
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    // Check if user has access (only admin and ceza roles can access)
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (user.role === 'uye') {
+      return res.status(403).json({ message: 'Access denied. This page is not available for your role.' });
+    }
+
     const tasks = await Task.find()
       .sort({ createdAt: -1 })
       .populate('author', 'username fullName')
@@ -63,6 +108,16 @@ router.get('/', authenticateToken, async (req, res) => {
 // Create a new task
 router.post('/', authenticateToken, async (req, res) => {
   try {
+    // Check if user has access (only admin and ceza roles can access)
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (user.role === 'uye') {
+      return res.status(403).json({ message: 'Access denied. This page is not available for your role.' });
+    }
+
     const { content, priority } = req.body;
 
     if (!content || content.trim() === '') {
@@ -70,11 +125,6 @@ router.post('/', authenticateToken, async (req, res) => {
     }
     const allowedPriorities = ['critical', 'medium', 'normal'];
     const taskPriority = allowedPriorities.includes(priority) ? priority : 'normal';
-
-    const user = await User.findById(req.user.userId);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
 
     const task = new Task({
       content: content.trim(),
@@ -92,7 +142,8 @@ router.post('/', authenticateToken, async (req, res) => {
       task._id,
       task.content,
       user,
-      user.fullName || user.username
+      user.fullName || user.username,
+      user.profileImage || null
     );
 
     await logAction({
@@ -115,12 +166,18 @@ router.post('/', authenticateToken, async (req, res) => {
 // Delete a task (author or admin)
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    // Check if user has access (only admin and ceza roles can access)
+    if (user.role === 'uye') {
+      return res.status(403).json({ message: 'Access denied. This page is not available for your role.' });
+    }
+
     const task = await Task.findById(req.params.id);
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
-    const user = await User.findById(req.user.userId);
-    if (!user) return res.status(404).json({ message: 'User not found' });
 
     const isOwner = task.author.toString() === req.user.userId;
     if (!isOwner && user.role !== 'admin') {
@@ -175,13 +232,15 @@ router.patch('/:id/complete', authenticateToken, async (req, res) => {
     // Notify task author
     if (task.author.toString() !== req.user.userId) {
       await Notification.create({
-        userId: task.author,
+        toUser: task.author,
         type: 'task_completed',
         title: 'Görev tamamlandı',
         message: `${user.fullName || user.username} görevinizi tamamladı: ${task.content.slice(0, 100)}`,
         taskId: task._id,
         fromUser: user._id,
         fromUserName: user.fullName || user.username,
+        fromUserProfileImage: user.profileImage || null,
+        link: `/dashboard/tasks?taskId=${task._id}`,
       });
     }
 
@@ -204,14 +263,19 @@ router.patch('/:id/complete', authenticateToken, async (req, res) => {
 // Unmark task as completed
 router.patch('/:id/uncomplete', authenticateToken, async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id);
-    if (!task) {
-      return res.status(404).json({ message: 'Task not found' });
-    }
-
     const user = await User.findById(req.user.userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Check if user has access (only admin and ceza roles can access)
+    if (user.role === 'uye') {
+      return res.status(403).json({ message: 'Access denied. This page is not available for your role.' });
+    }
+
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
     }
 
     task.completed = false;
@@ -242,6 +306,16 @@ router.patch('/:id/uncomplete', authenticateToken, async (req, res) => {
 // Add comment to task
 router.post('/:id/comments', authenticateToken, async (req, res) => {
   try {
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Check if user has access (only admin and ceza roles can access)
+    if (user.role === 'uye') {
+      return res.status(403).json({ message: 'Access denied. This page is not available for your role.' });
+    }
+
     const { message } = req.body;
     if (!message || message.trim() === '') {
       return res.status(400).json({ message: 'Comment message is required' });
@@ -251,8 +325,6 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
-
-    const user = await User.findById(req.user.userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -274,19 +346,22 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
       task._id,
       message.trim(),
       user,
-      user.fullName || user.username
+      user.fullName || user.username,
+      user.profileImage || null
     );
 
     // Notify task author if comment is not from author
     if (task.author.toString() !== req.user.userId) {
       await Notification.create({
-        userId: task.author,
+        toUser: task.author,
         type: 'task_comment',
         title: 'Görevinize yorum yapıldı',
         message: `${user.fullName || user.username} görevinize yorum yaptı: ${message.trim().slice(0, 100)}`,
         taskId: task._id,
         fromUser: user._id,
         fromUserName: user.fullName || user.username,
+        fromUserProfileImage: user.profileImage || null,
+        link: `/dashboard/tasks?taskId=${task._id}`,
       });
     }
 
@@ -309,11 +384,16 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
 // Delete comment
 router.delete('/:taskId/comments/:commentId', authenticateToken, async (req, res) => {
   try {
-    const task = await Task.findById(req.params.taskId);
-    if (!task) return res.status(404).json({ message: 'Task not found' });
-
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    // Check if user has access (only admin and ceza roles can access)
+    if (user.role === 'uye') {
+      return res.status(403).json({ message: 'Access denied. This page is not available for your role.' });
+    }
+
+    const task = await Task.findById(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Task not found' });
 
     const comment = task.comments.id(req.params.commentId);
     if (!comment) return res.status(404).json({ message: 'Comment not found' });

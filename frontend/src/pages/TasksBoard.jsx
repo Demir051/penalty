@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -35,6 +35,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/tr';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 dayjs.extend(relativeTime);
 dayjs.locale('tr');
@@ -70,11 +71,21 @@ const TasksBoard = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [confirm, setConfirm] = useState({ open: false, type: '', taskId: null, commentId: null });
   const [users, setUsers] = useState([]);
   const [mentionOpen, setMentionOpen] = useState({ taskId: null, position: null });
   const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionDialog, setMentionDialog] = useState({ open: false, mention: '', mentionedUsers: [] });
+
+  // Check if user has access (only admin and ceza roles can access)
+  useEffect(() => {
+    if (!authLoading && user && user.role === 'uye') {
+      navigate('/dashboard');
+      return;
+    }
+  }, [user, authLoading, navigate]);
 
   const fetchTasks = async () => {
     try {
@@ -87,21 +98,26 @@ const TasksBoard = () => {
     }
   };
 
-  useEffect(() => {
-    fetchTasks();
-    fetchUsers();
-    const interval = setInterval(fetchTasks, 20000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const res = await axios.get('/api/users');
       setUsers(res.data || []);
     } catch (error) {
-      console.error('Error fetching users:', error);
+      if (import.meta.env.DEV) {
+        console.error('Error fetching users:', error);
+      }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Only fetch if user has access
+    if (user && user.role !== 'uye') {
+      fetchTasks();
+      fetchUsers();
+      const interval = setInterval(fetchTasks, 20000);
+      return () => clearInterval(interval);
+    }
+  }, [user, fetchUsers]);
 
   const handleAddTask = async (e) => {
     e.preventDefault();
@@ -126,11 +142,36 @@ const TasksBoard = () => {
     const match = beforeCursor.match(/@(\w*)$/);
     if (!match) return [];
     const query = match[1].toLowerCase();
-    return users.filter(u => 
+    
+    // Group mentions
+    const groupRoles = ['üye', 'ceza', 'admin'];
+    const groupMatches = groupRoles.filter(role => role.startsWith(query));
+    
+    // Individual user mentions
+    const userMatches = users.filter(u => 
       (u.username?.toLowerCase().includes(query) || 
        u.fullName?.toLowerCase().includes(query)) &&
       u._id !== user?.id
     ).slice(0, 5);
+    
+    // Combine group and user suggestions
+    const suggestions = [];
+    
+    // Add group mentions first
+    groupMatches.forEach(role => {
+      suggestions.push({ 
+        _id: `group_${role}`, 
+        username: role, 
+        fullName: `@${role} (Grup)`,
+        isGroup: true,
+        role 
+      });
+    });
+    
+    // Add user mentions
+    suggestions.push(...userMatches);
+    
+    return suggestions.slice(0, 8);
   };
 
   const insertMention = (text, cursorPosition, username) => {
@@ -142,6 +183,94 @@ const TasksBoard = () => {
       return text.substring(0, startPos) + `@${username} ` + afterCursor;
     }
     return text;
+  };
+
+  // Helper to get users mentioned for a specific mention text (e.g., "@ceza" or "@username")
+  const getMentionedUsersForMention = (mentionText) => {
+    if (!mentionText || !mentionText.startsWith('@')) return [];
+    const mention = mentionText.substring(1).toLowerCase();
+    const groupRoles = ['admin', 'ceza', 'uye'];
+    const mentioned = [];
+    
+    // Check if it's a group mention
+    if (groupRoles.includes(mention)) {
+      const roleUsers = users.filter(u => u.role === mention);
+      mentioned.push(...roleUsers.map(u => ({ ...u, isGroup: true, groupRole: mention })));
+    } else {
+      // Individual user mention
+      const mentionedUser = users.find(u => u.username.toLowerCase() === mention);
+      if (mentionedUser) {
+        mentioned.push(mentionedUser);
+      }
+    }
+    
+    return mentioned;
+  };
+
+  // Helper to render text with highlighted mentions
+  const renderTextWithMentions = (text) => {
+    if (!text) return text;
+    const mentionRegex = /@(\w+)/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    const currentUsername = user?.username;
+
+    while ((match = mentionRegex.exec(text)) !== null) {
+      if (!match || !match[0]) continue; // Safety check
+      
+      // Add text before mention
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+      
+      // Check if this mention is for current user
+      const mentionedUsername = match[1];
+      const mentionText = match[0]; // Store mention text to avoid closure issues
+      const isMe = mentionedUsername?.toLowerCase() === currentUsername?.toLowerCase();
+      const groupRoles = ['admin', 'ceza', 'uye'];
+      const isGroup = groupRoles.includes(mentionedUsername?.toLowerCase() || '');
+      
+      // Get mentioned users for this specific mention
+      const mentionedUsers = getMentionedUsersForMention(mentionText);
+      
+      // Add clickable mention link
+      parts.push(
+        <span
+          key={match.index}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (mentionedUsers.length > 0) {
+              setMentionDialog({
+                open: true,
+                mention: mentionText,
+                mentionedUsers: mentionedUsers,
+              });
+            }
+          }}
+          style={{
+            backgroundColor: isMe ? 'rgba(244, 67, 54, 0.2)' : 'rgba(33, 150, 243, 0.2)',
+            padding: '2px 4px',
+            borderRadius: '3px',
+            fontWeight: '500',
+            cursor: 'pointer',
+          }}
+          title={`${mentionedUsers.length} kişi etiketlendi - Tıklayarak görüntüle`}
+        >
+          {mentionText}
+        </span>
+      );
+      
+      lastIndex = match.index + mentionText.length;
+    }
+    
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+    
+    return parts.length > 0 ? parts : text;
   };
 
   const handleComplete = async (taskId) => {
@@ -228,6 +357,24 @@ const TasksBoard = () => {
     [tasks]
   );
 
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <Container maxWidth="lg" sx={{ mt: 2, display: 'flex', justifyContent: 'center', py: 4 }}>
+        <CircularProgress />
+      </Container>
+    );
+  }
+
+  // Block access for 'uye' role
+  if (user && user.role === 'uye') {
+    return (
+      <Container maxWidth="lg" sx={{ mt: 2 }}>
+        <Alert severity="error">Bu sayfaya erişim yetkiniz bulunmamaktadır.</Alert>
+      </Container>
+    );
+  }
+
   return (
     <Container maxWidth="lg" sx={{ mt: 2 }}>
       <Paper sx={{ p: 3, mb: 3 }}>
@@ -259,7 +406,8 @@ const TasksBoard = () => {
                     const suggestions = getMentionSuggestions(newTask.content, mentionOpen.position);
                     if (suggestions.length > 0 && !e.ctrlKey) {
                       e.preventDefault();
-                      const newContent = insertMention(newTask.content, mentionOpen.position, suggestions[0].username);
+                      const mentionText = suggestions[0].isGroup ? suggestions[0].role : suggestions[0].username;
+                      const newContent = insertMention(newTask.content, mentionOpen.position, mentionText);
                       setNewTask((prev) => ({ ...prev, content: newContent }));
                       setMentionOpen({ taskId: null, position: null });
                     }
@@ -283,22 +431,30 @@ const TasksBoard = () => {
                   <List dense>
                     {getMentionSuggestions(newTask.content, mentionOpen.position).map((u) => (
                       <ListItem
-                        key={u._id}
+                        key={u._id || u.username}
                         button
                         onClick={() => {
-                          const newContent = insertMention(newTask.content, mentionOpen.position, u.username);
+                          const mentionText = u.isGroup ? u.role : u.username;
+                          const newContent = insertMention(newTask.content, mentionOpen.position, mentionText);
                           setNewTask((prev) => ({ ...prev, content: newContent }));
                           setMentionOpen({ taskId: null, position: null });
                         }}
                       >
                         <ListItemAvatar>
-                          <Avatar src={u.profileImage} sx={{ width: 24, height: 24 }}>
-                            {u.fullName?.[0] || u.username?.[0]}
+                          <Avatar 
+                            src={u.isGroup ? undefined : u.profileImage} 
+                            sx={{ 
+                              width: 24, 
+                              height: 24,
+                              bgcolor: u.isGroup ? 'secondary.main' : undefined
+                            }}
+                          >
+                            {u.isGroup ? 'G' : (u.fullName?.[0] || u.username?.[0])}
                           </Avatar>
                         </ListItemAvatar>
                         <ListItemText
-                          primary={u.fullName || u.username}
-                          secondary={`@${u.username}`}
+                          primary={u.isGroup ? `@${u.role} (Grup)` : (u.fullName || u.username)}
+                          secondary={u.isGroup ? `${u.role} rolündeki herkesi etiketle` : `@${u.username}`}
                         />
                       </ListItem>
                     ))}
@@ -355,8 +511,17 @@ const TasksBoard = () => {
         <Divider sx={{ mt: 1 }} />
 
         <Box sx={{ p: 3 }}>
-          {(tab === 0 ? activeTasks : completedTasks).map((task) => (
-            <Paper key={task._id} variant="outlined" sx={{ p: 2, mb: 2, borderColor: 'divider' }}>
+              {(tab === 0 ? activeTasks : completedTasks).map((task) => {
+                return (
+                <Paper 
+                  key={task._id} 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 2, 
+                    mb: 2, 
+                    borderColor: 'divider',
+                  }}
+                >
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
                 <Box>
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
@@ -377,7 +542,7 @@ const TasksBoard = () => {
                     />
                   </Stack>
                   <Typography variant="body1" sx={{ mb: 1 }}>
-                    {task.content}
+                    {renderTextWithMentions(task.content)}
                   </Typography>
                   {task.completed && (
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
@@ -430,8 +595,16 @@ const TasksBoard = () => {
               </Stack>
 
               <Stack spacing={1} sx={{ mb: 1 }}>
-                {visibleComments(task).map((comment, idx) => (
-                  <Box key={comment._id || idx} sx={{ p: 1.2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                {visibleComments(task).map((comment, idx) => {
+                  return (
+                  <Box 
+                    key={comment._id || idx} 
+                    sx={{ 
+                      p: 1.2, 
+                      bgcolor: 'action.hover', 
+                      borderRadius: 1,
+                    }}
+                  >
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Avatar sx={{ width: 28, height: 28 }} src={comment.authorImage || undefined}>
                         {comment.authorName?.[0]?.toUpperCase() || 'U'}
@@ -454,10 +627,11 @@ const TasksBoard = () => {
                       )}
                     </Stack>
                     <Typography variant="body2" sx={{ mt: 0.5, ml: 0.5 }}>
-                      {comment.message}
+                      {renderTextWithMentions(comment.message)}
                     </Typography>
                   </Box>
-                ))}
+                  );
+                })}
                 {(!task.comments || task.comments.length === 0) && (
                   <Typography variant="body2" color="text.secondary">
                     Henüz yorum yok.
@@ -528,23 +702,31 @@ const TasksBoard = () => {
                       <List dense>
                         {getMentionSuggestions(commentInputs[task._id] || '', mentionOpen.position).map((u) => (
                           <ListItem
-                            key={u._id}
+                            key={u._id || u.username}
                             button
                             onClick={() => {
                               const currentComment = commentInputs[task._id] || '';
-                              const newComment = insertMention(currentComment, mentionOpen.position, u.username);
+                              const mentionText = u.isGroup ? u.role : u.username;
+                              const newComment = insertMention(currentComment, mentionOpen.position, mentionText);
                               setCommentInputs((prev) => ({ ...prev, [task._id]: newComment }));
                               setMentionOpen({ taskId: null, position: null });
                             }}
                           >
                             <ListItemAvatar>
-                              <Avatar src={u.profileImage} sx={{ width: 24, height: 24 }}>
-                                {u.fullName?.[0] || u.username?.[0]}
+                              <Avatar 
+                                src={u.isGroup ? undefined : u.profileImage} 
+                                sx={{ 
+                                  width: 24, 
+                                  height: 24,
+                                  bgcolor: u.isGroup ? 'secondary.main' : undefined
+                                }}
+                              >
+                                {u.isGroup ? 'G' : (u.fullName?.[0] || u.username?.[0])}
                               </Avatar>
                             </ListItemAvatar>
                             <ListItemText
-                              primary={u.fullName || u.username}
-                              secondary={`@${u.username}`}
+                              primary={u.isGroup ? `@${u.role} (Grup)` : (u.fullName || u.username)}
+                              secondary={u.isGroup ? `${u.role} rolündeki herkesi etiketle` : `@${u.username}`}
                             />
                           </ListItem>
                         ))}
@@ -555,9 +737,10 @@ const TasksBoard = () => {
                 <Button variant="outlined" onClick={() => handleAddComment(task._id)}>
                   Gönder
                 </Button>
-              </Stack>
-            </Paper>
-          ))}
+                  </Stack>
+                </Paper>
+                );
+              })}
 
           {(tab === 0 ? activeTasks : completedTasks).length === 0 && (
             <Typography variant="body2" color="text.secondary">
@@ -579,6 +762,95 @@ const TasksBoard = () => {
         <DialogActions>
           <Button onClick={() => setConfirm({ open: false, type: '', taskId: null, commentId: null })}>Vazgeç</Button>
           <Button color="error" onClick={handleConfirm}>Sil</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Mention Dialog - Show who was mentioned */}
+      <Dialog 
+        open={mentionDialog.open} 
+        onClose={() => setMentionDialog({ open: false, mention: '', mentionedUsers: [] })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Typography variant="h6" component="span">
+              Etiketlenen Kullanıcılar
+            </Typography>
+            <Chip 
+              label={mentionDialog.mention} 
+              size="small" 
+              color="primary"
+              sx={{ fontWeight: 'bold' }}
+            />
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {mentionDialog.mentionedUsers.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              Bu etiket için kullanıcı bulunamadı.
+            </Typography>
+          ) : (
+            <List>
+              {mentionDialog.mentionedUsers.map((mentionedUser, index) => (
+                <Box key={mentionedUser._id || mentionedUser.id || mentionedUser.username || index}>
+                  <ListItem>
+                    <ListItemAvatar>
+                      <Avatar src={mentionedUser.profileImage} sx={{ bgcolor: 'primary.main' }}>
+                        {mentionedUser.fullName?.[0]?.toUpperCase() || mentionedUser.username?.[0]?.toUpperCase()}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={
+                        <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                          <Typography component="span" variant="body1" fontWeight="medium">
+                            {mentionedUser.fullName || mentionedUser.username}
+                          </Typography>
+                          {mentionedUser.isGroup && (
+                            <Chip 
+                              component="span"
+                              label={`@${mentionedUser.groupRole} (Grup)`} 
+                              size="small" 
+                              color="secondary"
+                            />
+                          )}
+                        </Box>
+                      }
+                      secondary={
+                        <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                          <Typography component="span" variant="caption" color="text.secondary">
+                            @{mentionedUser.username}
+                          </Typography>
+                          {mentionedUser.role && (
+                            <Chip
+                              component="span"
+                              label={mentionedUser.role === 'admin' ? 'Admin' : mentionedUser.role === 'ceza' ? 'Ceza' : 'Üye'}
+                              size="small"
+                              color={mentionedUser.role === 'admin' ? 'primary' : mentionedUser.role === 'ceza' ? 'warning' : 'default'}
+                            />
+                          )}
+                          {mentionedUser.isCurrentlyActive && (
+                            <Chip
+                              component="span"
+                              label="Aktif"
+                              size="small"
+                              color="success"
+                            />
+                          )}
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                  {index < mentionDialog.mentionedUsers.length - 1 && <Divider />}
+                </Box>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMentionDialog({ open: false, mention: '', mentionedUsers: [] })}>
+            Kapat
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>

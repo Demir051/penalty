@@ -187,4 +187,96 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Update user role (admin only)
+router.patch('/:id/role', authenticateToken, async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.userId);
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin user not found' });
+    }
+    
+    if (admin.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    const { role } = req.body;
+    if (!role) {
+      return res.status(400).json({ message: 'Role is required' });
+    }
+    
+    if (!['admin', 'ceza', 'uye'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+
+    const targetUser = await User.findById(req.params.id);
+    if (!targetUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Prevent admin from changing their own role
+    if (targetUser._id.toString() === admin._id.toString()) {
+      return res.status(400).json({ message: 'Cannot change your own role' });
+    }
+
+    const oldRole = targetUser.role;
+    targetUser.role = role;
+    await targetUser.save();
+
+    await logAction({
+      actorId: admin._id,
+      actorName: admin.fullName || admin.username,
+      action: 'user_role_update',
+      targetType: 'user',
+      targetId: targetUser._id.toString(),
+      message: `${targetUser.fullName || targetUser.username} kullanıcısının rolü ${oldRole} → ${role} olarak değiştirildi`,
+    });
+
+    const userResponse = targetUser.toObject();
+    delete userResponse.password;
+    res.json(userResponse);
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    res.status(500).json({ message: 'Error updating user role' });
+  }
+});
+
+// Delete user (admin only)
+router.delete('/:id', authenticateToken, async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.userId);
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin user not found' });
+    }
+    
+    if (admin.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    const targetUser = await User.findById(req.params.id);
+    if (!targetUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Prevent admin from deleting themselves
+    if (targetUser._id.toString() === admin._id.toString()) {
+      return res.status(400).json({ message: 'Cannot delete your own account' });
+    }
+
+    await logAction({
+      actorId: admin._id,
+      actorName: admin.fullName || admin.username,
+      action: 'user_delete',
+      targetType: 'user',
+      targetId: targetUser._id.toString(),
+      message: `Kullanıcı silindi: ${targetUser.fullName || targetUser.username} (${targetUser.role})`,
+    });
+
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Error deleting user' });
+  }
+});
+
 export default router;

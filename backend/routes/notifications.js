@@ -7,7 +7,7 @@ const router = express.Router();
 // Get user notifications
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const notifications = await Notification.find({ userId: req.user.userId })
+    const notifications = await Notification.find({ toUser: req.user.userId })
       .sort({ createdAt: -1 })
       .limit(100)
       .populate('fromUser', 'username fullName profileImage')
@@ -25,7 +25,7 @@ router.patch('/:id/read', authenticateToken, async (req, res) => {
   try {
     const notification = await Notification.findOne({
       _id: req.params.id,
-      userId: req.user.userId,
+      toUser: req.user.userId,
     });
     
     if (!notification) {
@@ -46,7 +46,7 @@ router.patch('/:id/read', authenticateToken, async (req, res) => {
 router.patch('/read-all', authenticateToken, async (req, res) => {
   try {
     await Notification.updateMany(
-      { userId: req.user.userId, read: false },
+      { toUser: req.user.userId, read: false },
       { read: true }
     );
     
@@ -61,7 +61,7 @@ router.patch('/read-all', authenticateToken, async (req, res) => {
 router.get('/unread-count', authenticateToken, async (req, res) => {
   try {
     const count = await Notification.countDocuments({
-      userId: req.user.userId,
+      toUser: req.user.userId,
       read: false,
     });
     

@@ -10,16 +10,10 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Grid,
-  Card,
-  CardContent,
   List,
   ListItem,
-  ListItemText,
   IconButton,
   Alert,
-  CircularProgress,
-  Divider,
 } from '@mui/material';
 import {
   FolderOpen,
@@ -127,129 +121,117 @@ const DekontAtıcı = () => {
         </Alert>
       )}
 
-      <Grid container spacing={3}>
-        {/* File Selection */}
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Dosya Seçimi
-            </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Button
-                variant="contained"
-                startIcon={<FolderOpen />}
-                onClick={() => fileInputRef.current?.click()}
-                fullWidth
-              >
-                PDF Dosyaları Seç
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".pdf"
-                onChange={handleFileSelect}
-                style={{ display: 'none' }}
-              />
-              <Button
-                variant="outlined"
-                startIcon={<Description />}
-                onClick={handleAddManual}
-                fullWidth
-              >
-                Manuel Ekle
-              </Button>
-            </Box>
-          </Paper>
-        </Grid>
+      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+        <Button
+          variant="contained"
+          startIcon={<FolderOpen />}
+          onClick={() => fileInputRef.current?.click()}
+          size="small"
+        >
+          PDF Seç
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf"
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
+        <Button
+          variant="outlined"
+          startIcon={<Description />}
+          onClick={handleAddManual}
+          size="small"
+        >
+          Manuel Ekle
+        </Button>
+        {pdfFiles.length > 0 && (
+          <Button
+            variant="contained"
+            startIcon={<Send />}
+            onClick={handleGenerateAll}
+            size="small"
+            sx={{ ml: 'auto' }}
+          >
+            Tümünü Kopyala
+          </Button>
+        )}
+      </Box>
 
-        {/* PDF List */}
-        <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">
-                PDF Dosyaları ({pdfFiles.length})
-              </Typography>
-              {pdfFiles.length > 0 && (
-                <Button
-                  variant="contained"
-                  startIcon={<Send />}
-                  onClick={handleGenerateAll}
-                  size="small"
-                >
-                  Tümünü Kopyala
-                </Button>
-              )}
-            </Box>
-
-            {pdfFiles.length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography color="text.secondary">
-                  Henüz dosya eklenmedi
-                </Typography>
-              </Box>
-            ) : (
-              <List>
-                {pdfFiles.map((file, index) => (
-                  <Card key={index} sx={{ mb: 2 }}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight="bold">
-                            {file.fullName}
-                          </Typography>
-                          <FormControl fullWidth sx={{ mt: 2, mb: 2 }}>
-                            <InputLabel>Durum Seçin</InputLabel>
-                            <Select
-                              value={file.status}
-                              onChange={(e) => handleStatusChange(index, e.target.value)}
-                              label="Durum Seçin"
-                            >
-                              <MenuItem value="default">Seçiniz</MenuItem>
-                              <MenuItem value="sent">Dekont iletildi</MenuItem>
-                              <MenuItem value="unreachable">Ulaşılamadı</MenuItem>
-                              <MenuItem value="already_informed">Zaten bilgi verilmiş</MenuItem>
-                            </Select>
-                          </FormControl>
-                          {file.message && (
-                            <Box>
-                              <TextField
-                                fullWidth
-                                multiline
-                                rows={2}
-                                value={file.message}
-                                label="Oluşturulan Mesaj"
-                                InputProps={{
-                                  readOnly: true,
-                                }}
-                                sx={{ mb: 1 }}
-                              />
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => handleCopyMessage(file.message)}
-                              >
-                                Mesajı Kopyala
-                              </Button>
-                            </Box>
-                          )}
-                        </Box>
-                        <IconButton
-                          color="error"
-                          onClick={() => handleRemoveFile(index)}
-                          sx={{ ml: 1 }}
-                        >
-                          <Delete />
-                        </IconButton>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ))}
-              </List>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
+      {pdfFiles.length === 0 ? (
+        <Paper sx={{ p: 3, textAlign: 'center' }}>
+          <Typography color="text.secondary">
+            Henüz dosya eklenmedi
+          </Typography>
+        </Paper>
+      ) : (
+        <Paper sx={{ p: 2 }}>
+          <List dense>
+            {pdfFiles.map((file, index) => (
+              <ListItem
+                key={index}
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  mb: 1,
+                  bgcolor: 'background.paper',
+                }}
+                secondaryAction={
+                  <IconButton
+                    edge="end"
+                    color="error"
+                    size="small"
+                    onClick={() => handleRemoveFile(index)}
+                  >
+                    <Delete fontSize="small" />
+                  </IconButton>
+                }
+              >
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" noWrap>
+                    {file.fullName}
+                  </Typography>
+                  <FormControl size="small" fullWidth sx={{ mt: 1, mb: 1 }}>
+                    <Select
+                      value={file.status}
+                      onChange={(e) => handleStatusChange(index, e.target.value)}
+                      displayEmpty
+                    >
+                      <MenuItem value="default">Durum seçin</MenuItem>
+                      <MenuItem value="sent">Dekont iletildi</MenuItem>
+                      <MenuItem value="unreachable">Ulaşılamadı</MenuItem>
+                      <MenuItem value="already_informed">Zaten bilgi verilmiş</MenuItem>
+                    </Select>
+                  </FormControl>
+                  {file.message && (
+                    <Box>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        value={file.message}
+                        InputProps={{
+                          readOnly: true,
+                        }}
+                        sx={{ mb: 0.5 }}
+                      />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => handleCopyMessage(file.message)}
+                        sx={{ fontSize: '0.75rem' }}
+                      >
+                        Kopyala
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              </ListItem>
+            ))}
+          </List>
+        </Paper>
+      )}
     </Container>
   );
 };
