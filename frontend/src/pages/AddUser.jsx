@@ -9,6 +9,7 @@ import {
   Alert,
   MenuItem,
   CircularProgress,
+  Box,
 } from '@mui/material';
 import axios from 'axios';
 
@@ -18,7 +19,7 @@ const AddUser = () => {
     email: '',
     fullName: '',
     password: '',
-    role: 'user',
+    role: 'uye',
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -32,9 +33,9 @@ const AddUser = () => {
     setMessage({ type: '', text: '' });
     setLoading(true);
     try {
-      await axios.post('/api/users', form);
+      await axios.post('/users', form);
       setMessage({ type: 'success', text: 'Kullanıcı başarıyla eklendi' });
-      setForm({ username: '', email: '', fullName: '', password: '', role: 'user' });
+      setForm({ username: '', email: '', fullName: '', password: '', role: 'uye' });
     } catch (error) {
       setMessage({
         type: 'error',
@@ -105,7 +106,8 @@ const AddUser = () => {
               value={form.role}
               onChange={handleChange}
             >
-              <MenuItem value="user">Kullanıcı</MenuItem>
+              <MenuItem value="uye">Üye</MenuItem>
+              <MenuItem value="ceza">Ceza</MenuItem>
               <MenuItem value="admin">Admin</MenuItem>
             </TextField>
 

@@ -25,8 +25,8 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'user'],
-    default: 'user',
+    enum: ['admin', 'ceza', 'uye'],
+    default: 'uye',
   },
   profileImage: {
     type: String,
@@ -35,6 +35,10 @@ const userSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  lastActiveAt: {
+    type: Date,
+    default: Date.now,
   },
   createdAt: {
     type: Date,
@@ -55,6 +59,3 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 };
 
 export default mongoose.model('User', userSchema);
-
-
-

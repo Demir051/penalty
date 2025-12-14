@@ -21,6 +21,13 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Autocomplete,
+  Popper,
+  Paper as MuiPaper,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
 } from '@mui/material';
 import { Assignment, Comment as CommentIcon, CheckCircle, Delete } from '@mui/icons-material';
 import axios from 'axios';
@@ -65,10 +72,13 @@ const TasksBoard = () => {
   const [initialLoading, setInitialLoading] = useState(true);
   const { user } = useAuth();
   const [confirm, setConfirm] = useState({ open: false, type: '', taskId: null, commentId: null });
+  const [users, setUsers] = useState([]);
+  const [mentionOpen, setMentionOpen] = useState({ taskId: null, position: null });
+  const [mentionQuery, setMentionQuery] = useState('');
 
   const fetchTasks = async () => {
     try {
-      const res = await axios.get('/api/tasks');
+      const res = await axios.get('/tasks');
       setTasks(res.data);
     } catch (error) {
       setMessage({ type: 'error', text: 'Görevler alınamadı' });
@@ -79,9 +89,19 @@ const TasksBoard = () => {
 
   useEffect(() => {
     fetchTasks();
+    fetchUsers();
     const interval = setInterval(fetchTasks, 20000);
     return () => clearInterval(interval);
   }, []);
+
+  const fetchUsers = async () => {
+    try {
+      const res = await axios.get('/users');
+      setUsers(res.data || []);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    }
+  };
 
   const handleAddTask = async (e) => {
     e.preventDefault();
@@ -89,7 +109,7 @@ const TasksBoard = () => {
     setLoading(true);
     setMessage({ type: '', text: '' });
     try {
-      await axios.post('/api/tasks', newTask);
+      await axios.post('/tasks', newTask);
       setNewTask({ content: '', priority: 'normal' });
       await fetchTasks();
       setMessage({ type: 'success', text: 'Görev eklendi' });
@@ -100,9 +120,33 @@ const TasksBoard = () => {
     }
   };
 
+  // @mention helper functions
+  const getMentionSuggestions = (text, cursorPosition) => {
+    const beforeCursor = text.substring(0, cursorPosition);
+    const match = beforeCursor.match(/@(\w*)$/);
+    if (!match) return [];
+    const query = match[1].toLowerCase();
+    return users.filter(u => 
+      (u.username?.toLowerCase().includes(query) || 
+       u.fullName?.toLowerCase().includes(query)) &&
+      u._id !== user?.id
+    ).slice(0, 5);
+  };
+
+  const insertMention = (text, cursorPosition, username) => {
+    const beforeCursor = text.substring(0, cursorPosition);
+    const afterCursor = text.substring(cursorPosition);
+    const mentionMatch = beforeCursor.match(/@(\w*)$/);
+    if (mentionMatch) {
+      const startPos = cursorPosition - mentionMatch[0].length;
+      return text.substring(0, startPos) + `@${username} ` + afterCursor;
+    }
+    return text;
+  };
+
   const handleComplete = async (taskId) => {
     try {
-      await axios.patch(`/api/tasks/${taskId}/complete`);
+      await axios.patch(`/tasks/${taskId}/complete`);
       await fetchTasks();
     } catch (error) {
       setMessage({ type: 'error', text: 'Görev tamamlanamadı' });
@@ -111,7 +155,7 @@ const TasksBoard = () => {
 
   const handleUncomplete = async (taskId) => {
     try {
-      await axios.patch(`/api/tasks/${taskId}/uncomplete`);
+      await axios.patch(`/tasks/${taskId}/uncomplete`);
       await fetchTasks();
     } catch (error) {
       setMessage({ type: 'error', text: 'Görev geri alınamadı' });
@@ -122,7 +166,7 @@ const TasksBoard = () => {
     const messageText = commentInputs[taskId]?.trim();
     if (!messageText) return;
     try {
-      await axios.post(`/api/tasks/${taskId}/comments`, { message: messageText });
+      await axios.post(`/tasks/${taskId}/comments`, { message: messageText });
       setCommentInputs((prev) => ({ ...prev, [taskId]: '' }));
       await fetchTasks();
     } catch (error) {
@@ -149,7 +193,7 @@ const TasksBoard = () => {
 
   const handleDeleteTask = async (taskId) => {
     try {
-      await axios.delete(`/api/tasks/${taskId}`);
+      await axios.delete(`/tasks/${taskId}`);
       await fetchTasks();
     } catch (error) {
       setMessage({ type: 'error', text: error.response?.data?.message || 'Görev silinemedi' });
@@ -158,7 +202,7 @@ const TasksBoard = () => {
 
   const handleDeleteComment = async (taskId, commentId) => {
     try {
-      await axios.delete(`/api/tasks/${taskId}/comments/${commentId}`);
+      await axios.delete(`/tasks/${taskId}/comments/${commentId}`);
       await fetchTasks();
     } catch (error) {
       setMessage({ type: 'error', text: error.response?.data?.message || 'Yorum silinemedi' });
@@ -192,13 +236,76 @@ const TasksBoard = () => {
         </Typography>
         <form onSubmit={handleAddTask}>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              fullWidth
-              label="Görev açıklaması"
-              value={newTask.content}
-              onChange={(e) => setNewTask((prev) => ({ ...prev, content: e.target.value }))}
-              required
-            />
+            <Box sx={{ position: 'relative', flex: 1 }}>
+              <TextField
+                fullWidth
+                label="Görev açıklaması"
+                value={newTask.content}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setNewTask((prev) => ({ ...prev, content: value }));
+                  // Check for @mention
+                  const cursorPos = e.target.selectionStart || value.length;
+                  const suggestions = getMentionSuggestions(value, cursorPos);
+                  if (suggestions.length > 0) {
+                    setMentionOpen({ taskId: 'new', position: cursorPos });
+                    setMentionQuery(suggestions[0]?.username || '');
+                  } else {
+                    setMentionOpen({ taskId: null, position: null });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (mentionOpen.taskId === 'new' && e.key === 'Enter' && !e.shiftKey) {
+                    const suggestions = getMentionSuggestions(newTask.content, mentionOpen.position);
+                    if (suggestions.length > 0 && !e.ctrlKey) {
+                      e.preventDefault();
+                      const newContent = insertMention(newTask.content, mentionOpen.position, suggestions[0].username);
+                      setNewTask((prev) => ({ ...prev, content: newContent }));
+                      setMentionOpen({ taskId: null, position: null });
+                    }
+                  }
+                }}
+                required
+              />
+              {mentionOpen.taskId === 'new' && (
+                <Paper
+                  sx={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 1000,
+                    mt: 0.5,
+                    maxHeight: 200,
+                    overflow: 'auto',
+                  }}
+                >
+                  <List dense>
+                    {getMentionSuggestions(newTask.content, mentionOpen.position).map((u) => (
+                      <ListItem
+                        key={u._id}
+                        button
+                        onClick={() => {
+                          const newContent = insertMention(newTask.content, mentionOpen.position, u.username);
+                          setNewTask((prev) => ({ ...prev, content: newContent }));
+                          setMentionOpen({ taskId: null, position: null });
+                        }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar src={u.profileImage} sx={{ width: 24, height: 24 }}>
+                            {u.fullName?.[0] || u.username?.[0]}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={u.fullName || u.username}
+                          secondary={`@${u.username}`}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              )}
+            </Box>
             <TextField
               select
               label="Öncelik"
@@ -371,13 +478,80 @@ const TasksBoard = () => {
               </Stack>
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  placeholder="Yorum yaz..."
-                  value={commentInputs[task._id] || ''}
-                  onChange={(e) => setCommentInputs((prev) => ({ ...prev, [task._id]: e.target.value }))}
-                />
+                <Box sx={{ position: 'relative', flex: 1 }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    placeholder="Yorum yaz... (@ ile kullanıcı bahset)"
+                    value={commentInputs[task._id] || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setCommentInputs((prev) => ({ ...prev, [task._id]: value }));
+                      // Check for @mention
+                      const cursorPos = e.target.selectionStart || value.length;
+                      const suggestions = getMentionSuggestions(value, cursorPos);
+                      if (suggestions.length > 0) {
+                        setMentionOpen({ taskId: task._id, position: cursorPos });
+                        setMentionQuery(suggestions[0]?.username || '');
+                      } else {
+                        if (mentionOpen.taskId === task._id) {
+                          setMentionOpen({ taskId: null, position: null });
+                        }
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (mentionOpen.taskId === task._id && e.key === 'Enter' && !e.shiftKey) {
+                        const suggestions = getMentionSuggestions(commentInputs[task._id] || '', mentionOpen.position);
+                        if (suggestions.length > 0 && !e.ctrlKey) {
+                          e.preventDefault();
+                          const currentComment = commentInputs[task._id] || '';
+                          const newComment = insertMention(currentComment, mentionOpen.position, suggestions[0].username);
+                          setCommentInputs((prev) => ({ ...prev, [task._id]: newComment }));
+                          setMentionOpen({ taskId: null, position: null });
+                        }
+                      }
+                    }}
+                  />
+                  {mentionOpen.taskId === task._id && (
+                    <Paper
+                      sx={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        zIndex: 1000,
+                        mt: 0.5,
+                        maxHeight: 200,
+                        overflow: 'auto',
+                      }}
+                    >
+                      <List dense>
+                        {getMentionSuggestions(commentInputs[task._id] || '', mentionOpen.position).map((u) => (
+                          <ListItem
+                            key={u._id}
+                            button
+                            onClick={() => {
+                              const currentComment = commentInputs[task._id] || '';
+                              const newComment = insertMention(currentComment, mentionOpen.position, u.username);
+                              setCommentInputs((prev) => ({ ...prev, [task._id]: newComment }));
+                              setMentionOpen({ taskId: null, position: null });
+                            }}
+                          >
+                            <ListItemAvatar>
+                              <Avatar src={u.profileImage} sx={{ width: 24, height: 24 }}>
+                                {u.fullName?.[0] || u.username?.[0]}
+                              </Avatar>
+                            </ListItemAvatar>
+                            <ListItemText
+                              primary={u.fullName || u.username}
+                              secondary={`@${u.username}`}
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Paper>
+                  )}
+                </Box>
                 <Button variant="outlined" onClick={() => handleAddComment(task._id)}>
                   Gönder
                 </Button>

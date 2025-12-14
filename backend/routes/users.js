@@ -5,6 +5,16 @@ import { logAction } from '../utils/activityLogger.js';
 
 const router = express.Router();
 
+// Update last active time
+router.post('/me/ping', authenticateToken, async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user.userId, { lastActiveAt: new Date() });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating activity' });
+  }
+});
+
 // Current user info
 router.get('/me', authenticateToken, async (req, res) => {
   try {
@@ -12,6 +22,9 @@ router.get('/me', authenticateToken, async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+    // Update last active
+    user.lastActiveAt = new Date();
+    await user.save();
     res.json(user);
   } catch (error) {
     console.error('Error fetching current user:', error);
@@ -22,7 +35,7 @@ router.get('/me', authenticateToken, async (req, res) => {
 // Update profile (profile image or full name)
 router.patch('/me/profile', authenticateToken, async (req, res) => {
   try {
-    const { profileImage, fullName, isActive } = req.body;
+    const { profileImage, fullName } = req.body;
     const user = await User.findById(req.user.userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -33,9 +46,7 @@ router.patch('/me/profile', authenticateToken, async (req, res) => {
     if (fullName) {
       user.fullName = fullName;
     }
-    if (typeof isActive === 'boolean') {
-      user.isActive = isActive;
-    }
+    user.lastActiveAt = new Date();
     await user.save();
     const userResponse = user.toObject();
     delete userResponse.password;
@@ -63,6 +74,9 @@ router.patch('/me/password', authenticateToken, async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ message: 'Current and new password are required' });
     }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
     const user = await User.findById(req.user.userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -72,6 +86,7 @@ router.patch('/me/password', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'Current password is incorrect' });
     }
     user.password = newPassword;
+    user.lastActiveAt = new Date();
     await user.save();
 
     await logAction({
@@ -90,16 +105,22 @@ router.patch('/me/password', authenticateToken, async (req, res) => {
   }
 });
 
-// Get all users (admin only)
+// Get all users (all authenticated users can see)
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId);
-    if (user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
-    const users = await User.find().select('-password');
-    res.json(users);
+    const users = await User.find().select('-password').sort({ fullName: 1 });
+    
+    // Mark users as active if they were active in last 5 minutes
+    const now = new Date();
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    
+    const usersWithActivity = users.map(user => {
+      const userObj = user.toObject();
+      userObj.isCurrentlyActive = user.lastActiveAt && new Date(user.lastActiveAt) > fiveMinutesAgo;
+      return userObj;
+    });
+    
+    res.json(usersWithActivity);
   } catch (error) {
     console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Error fetching users' });
@@ -114,10 +135,18 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(403).json({ message: 'Admin access required' });
     }
 
-    const { username, email, password, fullName, role, isActive } = req.body;
+    const { username, email, password, fullName, role } = req.body;
 
     if (!username || !email || !password || !fullName) {
       return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
+    if (!['admin', 'ceza', 'uye'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
     }
 
     const existingUser = await User.findOne({
@@ -133,8 +162,9 @@ router.post('/', authenticateToken, async (req, res) => {
       email,
       password,
       fullName,
-      role: role || 'user',
-      isActive: isActive !== undefined ? !!isActive : true,
+      role: role || 'uye',
+      isActive: true,
+      lastActiveAt: new Date(),
     });
 
     await newUser.save();
@@ -158,6 +188,3 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 export default router;
-
-
-

@@ -1,10 +1,49 @@
 import express from 'express';
 import Task from '../models/Task.js';
 import User from '../models/User.js';
+import Notification from '../models/Notification.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { logAction } from '../utils/activityLogger.js';
 
 const router = express.Router();
+
+// Helper function to extract mentions from text
+const extractMentions = (text) => {
+  const mentionRegex = /@(\w+)/g;
+  const mentions = [];
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    mentions.push(match[1]);
+  }
+  return [...new Set(mentions)]; // Remove duplicates
+};
+
+// Helper function to create notifications for mentions
+const createMentionNotifications = async (taskId, content, fromUser, fromUserName) => {
+  const mentions = extractMentions(content);
+  if (mentions.length === 0) return;
+
+  const users = await User.find({
+    $or: [
+      { username: { $in: mentions } },
+      { fullName: { $in: mentions } },
+    ],
+  });
+
+  const notifications = users.map(user => ({
+    userId: user._id,
+    type: 'mention',
+    title: 'Görevde bahsedildiniz',
+    message: `${fromUserName} sizi bir görevde bahsetti: ${content.slice(0, 100)}`,
+    taskId,
+    fromUser: fromUser._id,
+    fromUserName,
+  }));
+
+  if (notifications.length > 0) {
+    await Notification.insertMany(notifications);
+  }
+};
 
 // Get all tasks (feed)
 router.get('/', authenticateToken, async (req, res) => {
@@ -47,6 +86,14 @@ router.post('/', authenticateToken, async (req, res) => {
 
     await task.save();
     await task.populate('author', 'username fullName');
+
+    // Create notifications for mentions
+    await createMentionNotifications(
+      task._id,
+      task.content,
+      user,
+      user.fullName || user.username
+    );
 
     await logAction({
       actorId: user._id,
@@ -125,6 +172,19 @@ router.patch('/:id/complete', authenticateToken, async (req, res) => {
     await task.populate('author', 'username fullName');
     await task.populate('completedBy', 'username fullName');
 
+    // Notify task author
+    if (task.author.toString() !== req.user.userId) {
+      await Notification.create({
+        userId: task.author,
+        type: 'task_completed',
+        title: 'Görev tamamlandı',
+        message: `${user.fullName || user.username} görevinizi tamamladı: ${task.content.slice(0, 100)}`,
+        taskId: task._id,
+        fromUser: user._id,
+        fromUserName: user.fullName || user.username,
+      });
+    }
+
     await logAction({
       actorId: user._id,
       actorName: user.fullName || user.username,
@@ -141,7 +201,7 @@ router.patch('/:id/complete', authenticateToken, async (req, res) => {
   }
 });
 
-// Unmark task as completed (optional feature)
+// Unmark task as completed
 router.patch('/:id/uncomplete', authenticateToken, async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
@@ -149,16 +209,22 @@ router.patch('/:id/uncomplete', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Task not found' });
     }
 
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
     task.completed = false;
     task.completedBy = null;
     task.completedByName = null;
+    task.completedByImage = null;
     task.completedAt = null;
 
     await task.save();
     await task.populate('author', 'username fullName');
 
     await logAction({
-      actorId: req.user.userId,
+      actorId: user._id,
       actorName: user.fullName || user.username,
       action: 'task_uncomplete',
       targetType: 'task',
@@ -202,6 +268,27 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
     await task.save();
     await task.populate('author', 'username fullName');
     await task.populate('completedBy', 'username fullName');
+
+    // Create notifications for mentions in comment
+    await createMentionNotifications(
+      task._id,
+      message.trim(),
+      user,
+      user.fullName || user.username
+    );
+
+    // Notify task author if comment is not from author
+    if (task.author.toString() !== req.user.userId) {
+      await Notification.create({
+        userId: task.author,
+        type: 'task_comment',
+        title: 'Görevinize yorum yapıldı',
+        message: `${user.fullName || user.username} görevinize yorum yaptı: ${message.trim().slice(0, 100)}`,
+        taskId: task._id,
+        fromUser: user._id,
+        fromUserName: user.fullName || user.username,
+      });
+    }
 
     await logAction({
       actorId: user._id,
@@ -256,6 +343,3 @@ router.delete('/:taskId/comments/:commentId', authenticateToken, async (req, res
 });
 
 export default router;
-
-
-

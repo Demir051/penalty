@@ -25,7 +25,7 @@ const AdminLogs = () => {
   const fetchLogs = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/logs?limit=300');
+      const res = await axios.get('/logs?limit=300');
       setLogs(res.data);
       setError('');
     } catch (err) {

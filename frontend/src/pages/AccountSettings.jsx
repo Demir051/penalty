@@ -33,7 +33,7 @@ const AccountSettings = () => {
     setProfileMessage({ type: '', text: '' });
     setLoadingProfile(true);
     try {
-      await axios.patch('/api/users/me/profile', { profileImage, fullName });
+      await axios.patch('/users/me/profile', { profileImage, fullName });
       await refreshUser();
       setProfileMessage({ type: 'success', text: 'Profil bilgileri güncellendi' });
     } catch (error) {
@@ -59,7 +59,7 @@ const AccountSettings = () => {
     setPasswordMessage({ type: '', text: '' });
     setLoadingPassword(true);
     try {
-      await axios.patch('/api/users/me/password', { currentPassword, newPassword });
+      await axios.patch('/users/me/password', { currentPassword, newPassword });
       setPasswordMessage({ type: 'success', text: 'Şifre güncellendi' });
       e.currentTarget.reset();
     } catch (error) {

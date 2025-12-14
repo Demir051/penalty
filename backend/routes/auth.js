@@ -4,6 +4,11 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
+// Rate limiting for login
+const loginAttempts = new Map();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
+
 // Login
 router.post('/login', async (req, res) => {
   try {
@@ -13,15 +18,47 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Username and password are required' });
     }
 
+    // Check rate limiting
+    const ip = req.ip || req.connection.remoteAddress;
+    const attempts = loginAttempts.get(ip) || { count: 0, lockoutUntil: 0 };
+    
+    if (attempts.lockoutUntil > Date.now()) {
+      const minutesLeft = Math.ceil((attempts.lockoutUntil - Date.now()) / 60000);
+      return res.status(429).json({ 
+        message: `Too many login attempts. Try again in ${minutesLeft} minute(s).` 
+      });
+    }
+
     const user = await User.findOne({ username });
     if (!user) {
+      // Increment failed attempts
+      attempts.count++;
+      if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
+        attempts.lockoutUntil = Date.now() + LOCKOUT_TIME;
+        attempts.count = 0;
+      }
+      loginAttempts.set(ip, attempts);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
+      // Increment failed attempts
+      attempts.count++;
+      if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
+        attempts.lockoutUntil = Date.now() + LOCKOUT_TIME;
+        attempts.count = 0;
+      }
+      loginAttempts.set(ip, attempts);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    // Reset attempts on successful login
+    loginAttempts.delete(ip);
+
+    // Update last active
+    user.lastActiveAt = new Date();
+    await user.save();
 
     const token = jwt.sign(
       { userId: user._id, username: user.username, role: user.role },
@@ -63,6 +100,10 @@ router.get('/verify', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Update last active
+    user.lastActiveAt = new Date();
+    await user.save();
+
     res.json({ user });
   } catch (error) {
     res.status(401).json({ message: 'Invalid token' });
@@ -70,6 +111,3 @@ router.get('/verify', async (req, res) => {
 });
 
 export default router;
-
-
-

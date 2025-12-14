@@ -1,0 +1,127 @@
+import express from 'express';
+import Penalty from '../models/Penalty.js';
+import { authenticateToken } from '../middleware/auth.js';
+import { logAction } from '../utils/activityLogger.js';
+import User from '../models/User.js';
+
+const router = express.Router();
+
+// Get penalties for a date range
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const query = {};
+    
+    if (startDate && endDate) {
+      query.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
+      };
+    }
+    
+    const penalties = await Penalty.find(query)
+      .sort({ date: -1 })
+      .populate('createdBy', 'username fullName')
+      .limit(100);
+    
+    res.json(penalties);
+  } catch (error) {
+    console.error('Error fetching penalties:', error);
+    res.status(500).json({ message: 'Error fetching penalties' });
+  }
+});
+
+// Get today's penalty
+router.get('/today', authenticateToken, async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const penalty = await Penalty.findOne({
+      date: { $gte: today, $lt: tomorrow },
+    }).populate('createdBy', 'username fullName');
+    
+    res.json(penalty || { count: 0, date: today });
+  } catch (error) {
+    console.error('Error fetching today penalty:', error);
+    res.status(500).json({ message: 'Error fetching today penalty' });
+  }
+});
+
+// Get weekly total
+router.get('/weekly-total', authenticateToken, async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekStart = new Date(today);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    
+    const penalties = await Penalty.find({
+      date: { $gte: weekStart },
+    });
+    
+    const total = penalties.reduce((sum, p) => sum + p.count, 0);
+    
+    res.json({ total, weekStart });
+  } catch (error) {
+    console.error('Error fetching weekly total:', error);
+    res.status(500).json({ message: 'Error fetching weekly total' });
+  }
+});
+
+// Create or update today's penalty (admin and ceza only)
+router.post('/today', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!['admin', 'ceza'].includes(user.role)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    const { count } = req.body;
+    
+    if (typeof count !== 'number' || count < 0) {
+      return res.status(400).json({ message: 'Valid count is required' });
+    }
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    let penalty = await Penalty.findOne({
+      date: { $gte: today, $lt: tomorrow },
+    });
+    
+    if (penalty) {
+      penalty.count = count;
+      penalty.createdBy = req.user.userId;
+      await penalty.save();
+    } else {
+      penalty = new Penalty({
+        date: today,
+        count,
+        createdBy: req.user.userId,
+      });
+      await penalty.save();
+    }
+    
+    await logAction({
+      actorId: user._id,
+      actorName: user.fullName || user.username,
+      action: 'penalty_update',
+      targetType: 'penalty',
+      targetId: penalty._id.toString(),
+      message: `Bugünkü ceza sayısı güncellendi: ${count}`,
+    });
+    
+    res.json(penalty);
+  } catch (error) {
+    console.error('Error updating penalty:', error);
+    res.status(500).json({ message: 'Error updating penalty' });
+  }
+});
+
+export default router;
+

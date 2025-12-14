@@ -17,6 +17,13 @@ import {
   ListItemText,
   Divider,
   LinearProgress,
+  TextField,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
 } from '@mui/material';
 import {
   People,
@@ -27,6 +34,7 @@ import {
   Schedule,
   Gavel,
   Assessment,
+  Edit,
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -42,22 +50,27 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
 
 const MainPage = () => {
   const [members, setMembers] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [stats, setStats] = useState({
     todayPenalties: 0,
+    weeklyTotal: 0,
     weeklyData: [],
-    penaltyTypes: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [penaltyDialog, setPenaltyDialog] = useState(false);
+  const [penaltyInput, setPenaltyInput] = useState('');
+  const { user } = useAuth();
 
   const pendingTasks = tasks.filter((t) => !t.completed);
   const completedTasks = tasks.filter((t) => t.completed);
   const criticalTasks = tasks.filter((t) => !t.completed && t.priority === 'critical');
+  const activeMembers = members.filter((m) => m.isCurrentlyActive).length;
 
   useEffect(() => {
     fetchDashboardData();
@@ -70,35 +83,55 @@ const MainPage = () => {
     try {
       setLoading(true);
       
+      // Kullanıcıları getir
       try {
-        const resUsers = await axios.get('/api/users');
+        const resUsers = await axios.get('/users');
         setMembers(resUsers.data || []);
       } catch (err) {
         setMembers([]);
       }
 
-      // İstatistikleri getir (şimdilik mock data)
-      const today = new Date();
-      const weeklyData = [];
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        weeklyData.push({
-          date: date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }),
-          ceza: Math.floor(Math.random() * 20) + 5,
-        });
+      // Bugünkü ceza
+      try {
+        const todayPenalty = await axios.get('/penalties/today');
+        setStats(prev => ({
+          ...prev,
+          todayPenalties: todayPenalty.data.count || 0,
+        }));
+      } catch (err) {
+        console.error('Error fetching today penalty:', err);
       }
 
-      setStats({
-        todayPenalties: Math.floor(Math.random() * 15) + 10,
-        weeklyData,
-        penaltyTypes: [],
-      });
+      // Haftalık toplam
+      try {
+        const weeklyTotal = await axios.get('/penalties/weekly-total');
+        setStats(prev => ({
+          ...prev,
+          weeklyTotal: weeklyTotal.data.total || 0,
+        }));
+      } catch (err) {
+        console.error('Error fetching weekly total:', err);
+      }
+
+      // Haftalık grafik - sabit kalacak (sadece ilk yüklemede)
+      if (stats.weeklyData.length === 0) {
+        const today = new Date();
+        const weeklyData = [];
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          weeklyData.push({
+            date: date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }),
+            ceza: 0, // Sabit kalacak
+          });
+        }
+        setStats(prev => ({ ...prev, weeklyData }));
+      }
 
       // Görevleri getir
       try {
         setBusy(true);
-        const response = await axios.get('/api/tasks');
+        const response = await axios.get('/tasks');
         setTasks(response.data || []);
       } catch (err) {
         console.error('Error fetching tasks:', err);
@@ -112,6 +145,22 @@ const MainPage = () => {
       setError('Veriler yüklenirken bir hata oluştu');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdatePenalty = async () => {
+    const count = parseInt(penaltyInput);
+    if (isNaN(count) || count < 0) {
+      setError('Geçerli bir sayı girin');
+      return;
+    }
+    try {
+      await axios.post('/penalties/today', { count });
+      setPenaltyDialog(false);
+      setPenaltyInput('');
+      await fetchDashboardData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Ceza güncellenemedi');
     }
   };
 
@@ -165,7 +214,7 @@ const MainPage = () => {
       <Grid container spacing={3}>
         {/* İstatistik Kartları */}
         <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: 'primary.main', color: 'white' }}>
+          <Card sx={{ bgcolor: 'primary.main', color: 'white', position: 'relative' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
@@ -178,6 +227,18 @@ const MainPage = () => {
                 </Box>
                 <Gavel sx={{ fontSize: 40, opacity: 0.8 }} />
               </Box>
+              {(user?.role === 'admin' || user?.role === 'ceza') && (
+                <IconButton
+                  size="small"
+                  sx={{ position: 'absolute', top: 8, right: 8, color: 'white' }}
+                  onClick={() => {
+                    setPenaltyInput(stats.todayPenalties.toString());
+                    setPenaltyDialog(true);
+                  }}
+                >
+                  <Edit fontSize="small" />
+                </IconButton>
+              )}
             </CardContent>
           </Card>
         </Grid>
@@ -188,7 +249,7 @@ const MainPage = () => {
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
                   <Typography variant="h4" fontWeight="bold">
-                    {members.length}
+                    {activeMembers}
                   </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.9 }}>
                     Aktif Üye
@@ -224,7 +285,7 @@ const MainPage = () => {
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
                   <Typography variant="h4" fontWeight="bold">
-                    {stats.weeklyData.reduce((sum, d) => sum + d.ceza, 0)}
+                    {stats.weeklyTotal}
                   </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.9 }}>
                     Bu Hafta Toplam
@@ -284,7 +345,7 @@ const MainPage = () => {
                   data={[
                     { name: 'Bekleyen Görevler', value: pendingTasks.length, color: '#ef4444' },
                     { name: 'Tamamlanan Görevler', value: completedTasks.length, color: '#22c55e' },
-                    { name: 'Cezalar', value: 40, color: '#8884d8' },
+                    { name: 'Bugünkü Ceza', value: stats.todayPenalties, color: '#8884d8' },
                   ]}
                   cx="50%"
                   cy="50%"
@@ -332,14 +393,14 @@ const MainPage = () => {
                       secondary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                           <Chip
-                            label={member.isActive === false ? 'Pasif' : 'Aktif'}
+                            label={member.isCurrentlyActive ? 'Aktif' : 'Pasif'}
                             size="small"
-                            color={member.isActive === false ? 'default' : 'success'}
+                            color={member.isCurrentlyActive ? 'success' : 'default'}
                           />
                           <Chip
-                            label={member.role === 'admin' ? 'Admin' : 'Üye'}
+                            label={member.role === 'admin' ? 'Admin' : member.role === 'ceza' ? 'Ceza' : 'Üye'}
                             size="small"
-                            color={member.role === 'admin' ? 'primary' : 'default'}
+                            color={member.role === 'admin' ? 'primary' : member.role === 'ceza' ? 'warning' : 'default'}
                           />
                           <Typography variant="caption" color="text.secondary">
                             {member.email}
@@ -451,6 +512,27 @@ const MainPage = () => {
           </Grid>
         )}
       </Grid>
+
+      <Dialog open={penaltyDialog} onClose={() => setPenaltyDialog(false)}>
+        <DialogTitle>Bugünkü Ceza Sayısını Güncelle</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Ceza Sayısı"
+            type="number"
+            fullWidth
+            variant="outlined"
+            value={penaltyInput}
+            onChange={(e) => setPenaltyInput(e.target.value)}
+            inputProps={{ min: 0 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPenaltyDialog(false)}>İptal</Button>
+          <Button onClick={handleUpdatePenalty} variant="contained">Güncelle</Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };
