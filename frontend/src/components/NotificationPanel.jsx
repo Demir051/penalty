@@ -49,7 +49,7 @@ const NotificationPanel = ({ open, onClose }) => {
   const fetchNotifications = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/notifications');
+      const response = await axios.get('/api/notifications');
       setNotifications(response.data);
       setUnreadCount(response.data.filter(n => !n.read).length);
     } catch (error) {
@@ -61,7 +61,7 @@ const NotificationPanel = ({ open, onClose }) => {
 
   const fetchUnreadCount = async () => {
     try {
-      const response = await axios.get('/notifications/unread-count');
+      const response = await axios.get('/api/notifications/unread-count');
       setUnreadCount(response.data.count);
     } catch (error) {
       console.error('Error fetching unread count:', error);
@@ -70,7 +70,7 @@ const NotificationPanel = ({ open, onClose }) => {
 
   const markAsRead = async (id) => {
     try {
-      await axios.patch(`/notifications/${id}/read`);
+      await axios.patch(`/api/notifications/${id}/read`);
       setNotifications(prev =>
         prev.map(n => n._id === id ? { ...n, read: true } : n)
       );
@@ -82,7 +82,7 @@ const NotificationPanel = ({ open, onClose }) => {
 
   const markAllAsRead = async () => {
     try {
-      await axios.patch('/notifications/read-all');
+      await axios.patch('/api/notifications/read-all');
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
     } catch (error) {

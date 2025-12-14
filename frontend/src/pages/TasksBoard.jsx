@@ -78,7 +78,7 @@ const TasksBoard = () => {
 
   const fetchTasks = async () => {
     try {
-      const res = await axios.get('/tasks');
+      const res = await axios.get('/api/tasks');
       setTasks(res.data);
     } catch (error) {
       setMessage({ type: 'error', text: 'Görevler alınamadı' });
@@ -96,7 +96,7 @@ const TasksBoard = () => {
 
   const fetchUsers = async () => {
     try {
-      const res = await axios.get('/users');
+      const res = await axios.get('/api/users');
       setUsers(res.data || []);
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -109,7 +109,7 @@ const TasksBoard = () => {
     setLoading(true);
     setMessage({ type: '', text: '' });
     try {
-      await axios.post('/tasks', newTask);
+      await axios.post('/api/tasks', newTask);
       setNewTask({ content: '', priority: 'normal' });
       await fetchTasks();
       setMessage({ type: 'success', text: 'Görev eklendi' });
@@ -146,7 +146,7 @@ const TasksBoard = () => {
 
   const handleComplete = async (taskId) => {
     try {
-      await axios.patch(`/tasks/${taskId}/complete`);
+      await axios.patch(`/api/tasks/${taskId}/complete`);
       await fetchTasks();
     } catch (error) {
       setMessage({ type: 'error', text: 'Görev tamamlanamadı' });
@@ -155,7 +155,7 @@ const TasksBoard = () => {
 
   const handleUncomplete = async (taskId) => {
     try {
-      await axios.patch(`/tasks/${taskId}/uncomplete`);
+      await axios.patch(`/api/tasks/${taskId}/uncomplete`);
       await fetchTasks();
     } catch (error) {
       setMessage({ type: 'error', text: 'Görev geri alınamadı' });
@@ -166,7 +166,7 @@ const TasksBoard = () => {
     const messageText = commentInputs[taskId]?.trim();
     if (!messageText) return;
     try {
-      await axios.post(`/tasks/${taskId}/comments`, { message: messageText });
+      await axios.post(`/api/tasks/${taskId}/comments`, { message: messageText });
       setCommentInputs((prev) => ({ ...prev, [taskId]: '' }));
       await fetchTasks();
     } catch (error) {
@@ -193,7 +193,7 @@ const TasksBoard = () => {
 
   const handleDeleteTask = async (taskId) => {
     try {
-      await axios.delete(`/tasks/${taskId}`);
+      await axios.delete(`/api/tasks/${taskId}`);
       await fetchTasks();
     } catch (error) {
       setMessage({ type: 'error', text: error.response?.data?.message || 'Görev silinemedi' });
@@ -202,7 +202,7 @@ const TasksBoard = () => {
 
   const handleDeleteComment = async (taskId, commentId) => {
     try {
-      await axios.delete(`/tasks/${taskId}/comments/${commentId}`);
+      await axios.delete(`/api/tasks/${taskId}/comments/${commentId}`);
       await fetchTasks();
     } catch (error) {
       setMessage({ type: 'error', text: error.response?.data?.message || 'Yorum silinemedi' });

@@ -1,7 +1,15 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
-axios.defaults.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Base URL - sadece domain, path'lerde /api kullanılacak
+const apiBaseUrl = import.meta.env.VITE_API_URL;
+if (apiBaseUrl) {
+  // Eğer VITE_API_URL /api ile bitiyorsa onu kaldır
+  axios.defaults.baseURL = apiBaseUrl.endsWith('/api') ? apiBaseUrl.slice(0, -4) : apiBaseUrl.replace(/\/api$/, '');
+} else {
+  // Development için
+  axios.defaults.baseURL = 'http://localhost:5000';
+}
 
 const AuthContext = createContext();
 
@@ -39,7 +47,8 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      const response = await axios.post('/auth/login', {
+      console.log('Attempting login to:', axios.defaults.baseURL);
+      const response = await axios.post('/api/auth/login', {
         username,
         password,
       });
@@ -51,9 +60,12 @@ export const AuthProvider = ({ children }) => {
       setUser(user);
       return { success: true };
     } catch (error) {
+      console.error('Login error:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       return {
         success: false,
-        message: error.response?.data?.message || 'Login failed',
+        message: error.response?.data?.message || error.message || 'Login failed. Please check your connection and try again.',
       };
     }
   };
@@ -68,7 +80,7 @@ export const AuthProvider = ({ children }) => {
   const refreshUser = async () => {
     try {
       setGlobalLoading(true);
-      const response = await axios.get('/users/me');
+      const response = await axios.get('/api/users/me');
       setUser(response.data);
       localStorage.setItem('user', JSON.stringify(response.data));
     } catch (error) {

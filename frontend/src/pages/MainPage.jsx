@@ -85,7 +85,7 @@ const MainPage = () => {
       
       // Kullanıcıları getir
       try {
-        const resUsers = await axios.get('/users');
+        const resUsers = await axios.get('/api/users');
         setMembers(resUsers.data || []);
       } catch (err) {
         setMembers([]);
@@ -93,7 +93,7 @@ const MainPage = () => {
 
       // Bugünkü ceza
       try {
-        const todayPenalty = await axios.get('/penalties/today');
+        const todayPenalty = await axios.get('/api/penalties/today');
         setStats(prev => ({
           ...prev,
           todayPenalties: todayPenalty.data.count || 0,
@@ -104,7 +104,7 @@ const MainPage = () => {
 
       // Haftalık toplam
       try {
-        const weeklyTotal = await axios.get('/penalties/weekly-total');
+        const weeklyTotal = await axios.get('/api/penalties/weekly-total');
         setStats(prev => ({
           ...prev,
           weeklyTotal: weeklyTotal.data.total || 0,
@@ -131,7 +131,7 @@ const MainPage = () => {
       // Görevleri getir
       try {
         setBusy(true);
-        const response = await axios.get('/tasks');
+        const response = await axios.get('/api/tasks');
         setTasks(response.data || []);
       } catch (err) {
         console.error('Error fetching tasks:', err);
@@ -155,7 +155,7 @@ const MainPage = () => {
       return;
     }
     try {
-      await axios.post('/penalties/today', { count });
+      await axios.post('/api/penalties/today', { count });
       setPenaltyDialog(false);
       setPenaltyInput('');
       await fetchDashboardData();

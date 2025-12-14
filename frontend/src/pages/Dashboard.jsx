@@ -90,7 +90,7 @@ const Dashboard = ({ themeMode = 'light', onToggleTheme }) => {
   useEffect(() => {
     if (user) {
       const pingInterval = setInterval(() => {
-        axios.post('/users/me/ping').catch(() => {});
+        axios.post('/api/users/me/ping').catch(() => {});
       }, 30000); // Every 30 seconds
 
       return () => clearInterval(pingInterval);
@@ -102,7 +102,7 @@ const Dashboard = ({ themeMode = 'light', onToggleTheme }) => {
     if (user) {
       const fetchUnreadCount = async () => {
         try {
-          const response = await axios.get('/notifications/unread-count');
+          const response = await axios.get('/api/notifications/unread-count');
           setUnreadCount(response.data.count);
         } catch (error) {
           console.error('Error fetching unread count:', error);

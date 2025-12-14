@@ -31,6 +31,7 @@ router.post('/login', async (req, res) => {
 
     const user = await User.findOne({ username });
     if (!user) {
+      console.log(`Login attempt failed: User not found - ${username}`);
       // Increment failed attempts
       attempts.count++;
       if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
@@ -43,6 +44,7 @@ router.post('/login', async (req, res) => {
 
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
+      console.log(`Login attempt failed: Invalid password for user - ${username}`);
       // Increment failed attempts
       attempts.count++;
       if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
@@ -79,7 +81,15 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error during login' });
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
+    res.status(500).json({ 
+      message: 'Server error during login',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
