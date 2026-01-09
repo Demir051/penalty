@@ -22,14 +22,13 @@ import {
   Home,
   Assignment,
   Email,
-  Support,
-  Receipt,
   ListAlt,
   DarkMode,
   LightMode,
   AdminPanelSettings,
   Notifications as NotificationsIcon,
   People,
+  Today,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import NotificationPanel from '../components/NotificationPanel';
@@ -51,22 +50,20 @@ const Dashboard = ({ themeMode = 'light', onToggleTheme }) => {
     
     const baseItems = [];
     
-    // Üye: Only Beyanmatik and Dekont Atıcı
+    // Üye: Only Beyanmatik
     if (user.role === 'uye') {
       baseItems.push(
-        { text: 'Beyanmatik', icon: <Assignment />, path: '/dashboard/beyanmatik' },
-        { text: 'Dekont Atıcı', icon: <Receipt />, path: '/dashboard/dekont-atici' }
+        { text: 'Beyanmatik', icon: <Assignment />, path: '/dashboard/beyanmatik' }
       );
     }
-    // Ceza: Dashboard, Beyanmatik, Mail pages, Dekont Atıcı, Tasks (no logs)
+    // Ceza: Dashboard, Beyanmatik, Mailmatik, Tasks, Daily Tracking (no logs)
     else if (user.role === 'ceza') {
       baseItems.push(
         { text: 'Main Page', icon: <Home />, path: '/dashboard' },
         { text: 'Beyanmatik', icon: <Assignment />, path: '/dashboard/beyanmatik' },
         { text: 'Mailmatik', icon: <Email />, path: '/dashboard/mailmatik' },
-        { text: 'Destek Mailmatik', icon: <Support />, path: '/dashboard/destek-mailmatik' },
-        { text: 'Dekont Atıcı', icon: <Receipt />, path: '/dashboard/dekont-atici' },
-        { text: 'Görevler', icon: <ListAlt />, path: '/dashboard/tasks' }
+        { text: 'Görevler', icon: <ListAlt />, path: '/dashboard/tasks' },
+        { text: 'Günlük Takım Takibi', icon: <Today />, path: '/dashboard/daily-tracking' }
       );
     }
     // Admin: Everything
@@ -75,9 +72,8 @@ const Dashboard = ({ themeMode = 'light', onToggleTheme }) => {
         { text: 'Main Page', icon: <Home />, path: '/dashboard' },
         { text: 'Beyanmatik', icon: <Assignment />, path: '/dashboard/beyanmatik' },
         { text: 'Mailmatik', icon: <Email />, path: '/dashboard/mailmatik' },
-        { text: 'Destek Mailmatik', icon: <Support />, path: '/dashboard/destek-mailmatik' },
-        { text: 'Dekont Atıcı', icon: <Receipt />, path: '/dashboard/dekont-atici' },
         { text: 'Görevler', icon: <ListAlt />, path: '/dashboard/tasks' },
+        { text: 'Günlük Takım Takibi', icon: <Today />, path: '/dashboard/daily-tracking' },
         { text: 'Kullanıcı Yönetimi', icon: <People />, path: '/dashboard/users' },
         { text: 'Loglar', icon: <AdminPanelSettings />, path: '/dashboard/logs' }
       );
@@ -203,6 +199,7 @@ const Dashboard = ({ themeMode = 'light', onToggleTheme }) => {
           '& .MuiDrawer-paper': {
             width: drawerWidth,
             boxSizing: 'border-box',
+            borderRadius: '0 20px 20px 0',
           },
         }}
       >

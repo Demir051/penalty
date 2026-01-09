@@ -29,7 +29,7 @@ import {
   ListItemAvatar,
   ListItemText,
 } from '@mui/material';
-import { Assignment, Comment as CommentIcon, CheckCircle, Delete } from '@mui/icons-material';
+import { Assignment, Comment as CommentIcon, CheckCircle, Delete, OpenInNew } from '@mui/icons-material';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -78,6 +78,9 @@ const TasksBoard = () => {
   const [mentionOpen, setMentionOpen] = useState({ taskId: null, position: null });
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionDialog, setMentionDialog] = useState({ open: false, mention: '', mentionedUsers: [] });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMentionOpen, setSearchMentionOpen] = useState(false);
+  const [searchMentionPosition, setSearchMentionPosition] = useState(0);
 
   // Check if user has access (only admin and ceza roles can access)
   useEffect(() => {
@@ -348,14 +351,97 @@ const TasksBoard = () => {
     setCommentExpanded((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
   };
 
-  const activeTasks = useMemo(
-    () => sortTasks(tasks.filter((t) => !t.completed)),
-    [tasks]
-  );
-  const completedTasks = useMemo(
-    () => sortTasks(tasks.filter((t) => t.completed)),
-    [tasks]
-  );
+  const activeTasks = useMemo(() => {
+    let filtered = tasks.filter((t) => !t.completed);
+    
+    // Search query filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      
+      // Check if it's a mention search (@username)
+      if (query.startsWith('@')) {
+        const mentionName = query.substring(1); // Remove @
+        
+        // Find user by username or fullName
+        const matchedUser = users.find(u => 
+          u.username?.toLowerCase() === mentionName ||
+          u.fullName?.toLowerCase() === mentionName ||
+          u.username?.toLowerCase().includes(mentionName) ||
+          u.fullName?.toLowerCase().includes(mentionName)
+        );
+        
+        if (matchedUser) {
+          // Filter by author
+          filtered = filtered.filter((t) => 
+            t.author?._id === matchedUser._id || 
+            t.author === matchedUser._id ||
+            t.authorName?.toLowerCase() === matchedUser.fullName?.toLowerCase() ||
+            t.authorName?.toLowerCase() === matchedUser.username?.toLowerCase()
+          );
+        } else {
+          // No user found, filter by mention in content
+          filtered = filtered.filter((t) => {
+            const mentionRegex = new RegExp(`@${mentionName}`, 'i');
+            return mentionRegex.test(t.content);
+          });
+        }
+      } else {
+        // Normal text search
+        filtered = filtered.filter((t) => 
+          t.content.toLowerCase().includes(query) ||
+          t.authorName?.toLowerCase().includes(query)
+        );
+      }
+    }
+    
+    return sortTasks(filtered);
+  }, [tasks, searchQuery, users]);
+
+  const completedTasks = useMemo(() => {
+    let filtered = tasks.filter((t) => t.completed);
+    
+    // Search query filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      
+      // Check if it's a mention search (@username)
+      if (query.startsWith('@')) {
+        const mentionName = query.substring(1); // Remove @
+        
+        // Find user by username or fullName
+        const matchedUser = users.find(u => 
+          u.username?.toLowerCase() === mentionName ||
+          u.fullName?.toLowerCase() === mentionName ||
+          u.username?.toLowerCase().includes(mentionName) ||
+          u.fullName?.toLowerCase().includes(mentionName)
+        );
+        
+        if (matchedUser) {
+          // Filter by author
+          filtered = filtered.filter((t) => 
+            t.author?._id === matchedUser._id || 
+            t.author === matchedUser._id ||
+            t.authorName?.toLowerCase() === matchedUser.fullName?.toLowerCase() ||
+            t.authorName?.toLowerCase() === matchedUser.username?.toLowerCase()
+          );
+        } else {
+          // No user found, filter by mention in content
+          filtered = filtered.filter((t) => {
+            const mentionRegex = new RegExp(`@${mentionName}`, 'i');
+            return mentionRegex.test(t.content);
+          });
+        }
+      } else {
+        // Normal text search
+        filtered = filtered.filter((t) => 
+          t.content.toLowerCase().includes(query) ||
+          t.authorName?.toLowerCase().includes(query)
+        );
+      }
+    }
+    
+    return sortTasks(filtered);
+  }, [tasks, searchQuery, users]);
 
   // Show loading while checking auth
   if (authLoading) {
@@ -510,6 +596,113 @@ const TasksBoard = () => {
 
         <Divider sx={{ mt: 1 }} />
 
+        {/* Search Bar */}
+        <Box sx={{ px: 3, pt: 2, pb: 2, position: 'relative' }}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Box sx={{ position: 'relative', flex: 1 }}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Görev içeriğinde ara veya @kullanıcı ile kullanıcı görevlerini filtrele..."
+                value={searchQuery}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSearchQuery(value);
+                  // Check for @mention
+                  const cursorPos = e.target.selectionStart || value.length;
+                  const suggestions = getMentionSuggestions(value, cursorPos);
+                  if (suggestions.length > 0) {
+                    setSearchMentionOpen(true);
+                    setSearchMentionPosition(cursorPos);
+                  } else {
+                    setSearchMentionOpen(false);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (searchMentionOpen && e.key === 'Enter' && !e.shiftKey) {
+                    const suggestions = getMentionSuggestions(searchQuery, searchMentionPosition);
+                    if (suggestions.length > 0 && !e.ctrlKey) {
+                      e.preventDefault();
+                      const mentionText = suggestions[0].isGroup ? suggestions[0].role : suggestions[0].username;
+                      setSearchQuery(`@${mentionText}`);
+                      setSearchMentionOpen(false);
+                    }
+                  }
+                }}
+                onBlur={() => {
+                  // Delay to allow click on suggestion
+                  setTimeout(() => setSearchMentionOpen(false), 200);
+                }}
+              />
+              {searchMentionOpen && (
+                <Paper
+                  sx={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 1000,
+                    mt: 0.5,
+                    maxHeight: 200,
+                    overflow: 'auto',
+                    borderRadius: '12px',
+                  }}
+                >
+                  <List dense>
+                    {getMentionSuggestions(searchQuery, searchMentionPosition).map((u) => (
+                      <ListItem
+                        key={u._id || u.username}
+                        button
+                        onClick={() => {
+                          const mentionText = u.isGroup ? u.role : u.username;
+                          setSearchQuery(`@${mentionText}`);
+                          setSearchMentionOpen(false);
+                        }}
+                        sx={{
+                          borderRadius: '8px',
+                          mx: 0.5,
+                          my: 0.5,
+                        }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar 
+                            src={u.isGroup ? undefined : u.profileImage} 
+                            sx={{ 
+                              width: 32, 
+                              height: 32,
+                              bgcolor: u.isGroup ? 'secondary.main' : undefined
+                            }}
+                          >
+                            {u.isGroup ? 'G' : (u.fullName?.[0] || u.username?.[0])}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={u.isGroup ? `@${u.role} (Grup)` : (u.fullName || u.username)}
+                          secondary={u.isGroup ? `${u.role} rolündeki herkesi etiketle` : `@${u.username}`}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              )}
+            </Box>
+            {searchQuery && (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchMentionOpen(false);
+                }}
+              >
+                Temizle
+              </Button>
+            )}
+          </Stack>
+        </Box>
+
+        <Divider />
+
         <Box sx={{ p: 3 }}>
               {(tab === 0 ? activeTasks : completedTasks).map((task) => {
                 return (
@@ -562,6 +755,17 @@ const TasksBoard = () => {
                       <Button variant="outlined" size="small" onClick={() => handleUncomplete(task._id)}>
                         Geri Al
                       </Button>
+                      <Tooltip title="Görev detayını yeni sekmede aç">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={() => {
+                            window.open(`/dashboard/tasks/${task._id}`, '_blank');
+                          }}
+                        >
+                          <OpenInNew fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       {(user?.role === 'admin' || task.author === user?.id || task.author?._id === user?.id) && (
                         <Tooltip title="Görevi Sil">
                           <IconButton color="error" size="small" onClick={() => askDeleteTask(task._id)}>
@@ -575,6 +779,17 @@ const TasksBoard = () => {
                       <Button variant="contained" size="small" onClick={() => handleComplete(task._id)}>
                         Görevi Bitir
                       </Button>
+                      <Tooltip title="Görev detayını yeni sekmede aç">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={() => {
+                            window.open(`/dashboard/tasks/${task._id}`, '_blank');
+                          }}
+                        >
+                          <OpenInNew fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       {(user?.role === 'admin' || task.author === user?.id || task.author?._id === user?.id) && (
                         <Tooltip title="Görevi Sil">
                           <IconButton color="error" size="small" onClick={() => askDeleteTask(task._id)}>

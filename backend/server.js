@@ -8,6 +8,8 @@ import userRoutes from './routes/users.js';
 import logRoutes from './routes/logs.js';
 import notificationRoutes from './routes/notifications.js';
 import penaltyRoutes from './routes/penalties.js';
+import trafficPenaltyRoutes from './routes/trafficPenalties.js';
+import dailyTrackingRoutes from './routes/dailyTracking.js';
 
 dotenv.config();
 
@@ -44,8 +46,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Rate limiting (basic) - Skip for health check and more lenient for development
 const rateLimitMap = new Map();
@@ -89,10 +91,7 @@ const rateLimit = (req, res, next) => {
 app.use(rateLimit);
 
 // Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/penalty', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/penalty')
 .then(() => console.log('MongoDB connected'))
 .catch((err) => console.error('MongoDB connection error:', err));
 
@@ -103,6 +102,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/penalties', penaltyRoutes);
+app.use('/api/traffic-penalties', trafficPenaltyRoutes);
+app.use('/api/daily-tracking', dailyTrackingRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

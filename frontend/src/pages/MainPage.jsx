@@ -37,6 +37,7 @@ import {
   Gavel,
   Assessment,
   Edit,
+  OpenInNew,
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -67,6 +68,9 @@ const MainPage = () => {
   const [busy, setBusy] = useState(false);
   const [penaltyDialog, setPenaltyDialog] = useState(false);
   const [penaltyInput, setPenaltyInput] = useState('');
+  const [allPenaltiesDialog, setAllPenaltiesDialog] = useState(false);
+  const [allPenalties, setAllPenalties] = useState([]);
+  const [penaltyDates, setPenaltyDates] = useState({});
   const [memberPage, setMemberPage] = useState(1);
   const membersPerPage = 4;
   const { user } = useAuth();
@@ -179,9 +183,7 @@ const MainPage = () => {
 
   useEffect(() => {
     fetchDashboardData();
-    // Her 30 saniyede bir güncelle
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
+    // Otomatik yenileme kaldırıldı - sadece sayfa yüklendiğinde bir kez çalışır
   }, [fetchDashboardData]);
 
   const handleUpdatePenalty = async () => {
@@ -194,6 +196,47 @@ const MainPage = () => {
       await axios.post('/api/penalties/today', { count });
       setPenaltyDialog(false);
       setPenaltyInput('');
+      await fetchDashboardData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Ceza güncellenemedi');
+    }
+  };
+
+  const fetchAllPenalties = async () => {
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 4); // 4 ay öncesi
+      
+      const response = await axios.get('/api/penalties/all', {
+        params: {
+          startDate: startDate.toISOString().split('T')[0],
+          endDate: endDate.toISOString().split('T')[0],
+        },
+      });
+      
+      const penaltiesMap = {};
+      response.data.forEach(penalty => {
+        const dateStr = new Date(penalty.date).toISOString().split('T')[0];
+        penaltiesMap[dateStr] = penalty.count || 0;
+      });
+      
+      setPenaltyDates(penaltiesMap);
+      setAllPenalties(response.data);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Ceza verileri alınamadı');
+    }
+  };
+
+  const handleOpenAllPenaltiesDialog = () => {
+    setAllPenaltiesDialog(true);
+    fetchAllPenalties();
+  };
+
+  const handleUpdatePenaltyForDate = async (date, count) => {
+    try {
+      await axios.post('/api/penalties/date', { date, count });
+      setPenaltyDates(prev => ({ ...prev, [date]: count }));
       await fetchDashboardData();
     } catch (err) {
       setError(err.response?.data?.message || 'Ceza güncellenemedi');
@@ -370,8 +413,11 @@ const MainPage = () => {
               <PieChart>
                 <Pie
                   data={[
-                    { name: 'Bekleyen Görevler', value: pendingTasks.length, color: '#ef4444' },
-                    { name: 'Biten Görevler', value: completedTasks.length, color: '#22c55e' },
+                    { name: 'Bugünkü Görevler', value: tasks.filter(t => {
+                      const today = new Date().toDateString();
+                      const taskDate = t.createdAt ? new Date(t.createdAt).toDateString() : null;
+                      return taskDate === today;
+                    }).length, color: '#ef4444' },
                     { name: 'Bugünkü Ceza', value: stats.todayPenalties, color: '#8884d8' },
                   ]}
                   cx="50%"
@@ -385,7 +431,6 @@ const MainPage = () => {
                 >
                   {[
                     { color: '#ef4444' },
-                    { color: '#22c55e' },
                     { color: '#8884d8' },
                   ].map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
@@ -477,10 +522,15 @@ const MainPage = () => {
                 {criticalTasks.map((task, index) => (
                   <Box key={task._id}>
                     <ListItem
+                      onClick={() => window.open(`/dashboard/tasks/${task._id}`, '_blank')}
                       sx={{
                         bgcolor: task.completed ? 'action.hover' : 'transparent',
                         borderRadius: 1,
                         mb: 1,
+                        cursor: 'pointer',
+                        '&:hover': {
+                          bgcolor: 'action.hover',
+                        },
                       }}
                     >
                       <ListItemAvatar>
@@ -507,6 +557,7 @@ const MainPage = () => {
                               size="small"
                               color="error"
                             />
+                            <OpenInNew sx={{ fontSize: 16, color: 'text.secondary', ml: 1 }} />
                           </Box>
                         }
                       />
@@ -536,33 +587,76 @@ const MainPage = () => {
             right: 24,
             zIndex: 1000,
           }}
-          onClick={() => {
-            setPenaltyInput(stats.todayPenalties.toString());
-            setPenaltyDialog(true);
-          }}
+          onClick={handleOpenAllPenaltiesDialog}
         >
           <Edit />
         </Fab>
       )}
 
-      <Dialog open={penaltyDialog} onClose={() => setPenaltyDialog(false)}>
-        <DialogTitle>Bugünkü Ceza Sayısını Güncelle</DialogTitle>
+      <Dialog 
+        open={allPenaltiesDialog} 
+        onClose={() => setAllPenaltiesDialog(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6">Tüm Günlerdeki Ceza Sayılarını Düzenle</Typography>
+            <IconButton onClick={() => setAllPenaltiesDialog(false)} size="small">
+              ×
+            </IconButton>
+          </Box>
+        </DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Ceza Sayısı"
-            type="number"
-            fullWidth
-            variant="outlined"
-            value={penaltyInput}
-            onChange={(e) => setPenaltyInput(e.target.value)}
-            inputProps={{ min: 0 }}
-          />
+          <Box sx={{ maxHeight: '60vh', overflowY: 'auto', mt: 2 }}>
+            <Grid container spacing={2}>
+              {Array.from({ length: 120 }, (_, i) => {
+                const date = new Date();
+                date.setDate(date.getDate() - (119 - i));
+                const dateStr = date.toISOString().split('T')[0];
+                const formattedDate = date.toLocaleDateString('tr-TR', { 
+                  day: '2-digit', 
+                  month: '2-digit', 
+                  year: 'numeric' 
+                });
+                const isToday = dateStr === new Date().toISOString().split('T')[0];
+                
+                return (
+                  <Grid item xs={12} sm={6} md={4} key={dateStr}>
+                    <Box sx={{ 
+                      p: 1.5, 
+                      border: '1px solid', 
+                      borderColor: isToday ? 'primary.main' : 'divider',
+                      borderRadius: 1,
+                      bgcolor: isToday ? 'rgba(25, 118, 210, 0.08)' : 'background.paper',
+                    }}>
+                      <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: isToday ? 600 : 400 }}>
+                        {formattedDate} {isToday && '(Bugün)'}
+                      </Typography>
+                      <TextField
+                        size="small"
+                        type="number"
+                        fullWidth
+                        value={penaltyDates[dateStr] || 0}
+                        onChange={(e) => {
+                          const newCount = parseInt(e.target.value) || 0;
+                          setPenaltyDates(prev => ({ ...prev, [dateStr]: newCount }));
+                          handleUpdatePenaltyForDate(dateStr, newCount);
+                        }}
+                        inputProps={{ min: 0 }}
+                        sx={{ mt: 0.5 }}
+                      />
+                    </Box>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPenaltyDialog(false)}>İptal</Button>
-          <Button onClick={handleUpdatePenalty} variant="contained">Güncelle</Button>
+          <Button onClick={() => setAllPenaltiesDialog(false)} variant="contained">
+            Kapat
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>

@@ -121,21 +121,28 @@ const NotificationPanel = ({ open, onClose }) => {
           borderColor: 'divider',
           bgcolor: 'background.paper',
         }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6" fontWeight="bold">Bildirimler</Typography>
             <IconButton size="small" onClick={onClose}>
               <Close />
             </IconButton>
           </Box>
           {unreadCount > 0 && (
-            <Button 
-              size="small" 
-              variant="outlined"
-              onClick={markAllAsRead} 
-              sx={{ mt: 1 }}
-            >
-              Tümünü Okundu İşaretle ({unreadCount})
-            </Button>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+              <Button 
+                size="small" 
+                variant="outlined"
+                onClick={markAllAsRead}
+                startIcon={<CheckCircle />}
+                sx={{ 
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  fontWeight: 500,
+                }}
+              >
+                Tümünü Okundu İşaretle ({unreadCount})
+              </Button>
+            </Box>
           )}
         </Box>
 

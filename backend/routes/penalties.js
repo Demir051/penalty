@@ -101,6 +101,31 @@ router.get('/weekly', authenticateToken, async (req, res) => {
   }
 });
 
+// Get all penalties for date range (for editing interface)
+router.get('/all', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!['admin', 'ceza'].includes(user.role)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    const { startDate, endDate } = req.query;
+    const start = startDate ? new Date(startDate) : new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = endDate ? new Date(endDate) : new Date();
+    end.setHours(23, 59, 59, 999);
+    
+    const penalties = await Penalty.find({
+      date: { $gte: start, $lte: end },
+    }).sort({ date: -1 });
+    
+    res.json(penalties);
+  } catch (error) {
+    console.error('Error fetching all penalties:', error);
+    res.status(500).json({ message: 'Error fetching penalties' });
+  }
+});
+
 // Create or update today's penalty (admin and ceza only)
 router.post('/today', authenticateToken, async (req, res) => {
   try {
@@ -144,6 +169,58 @@ router.post('/today', authenticateToken, async (req, res) => {
       targetType: 'penalty',
       targetId: penalty._id.toString(),
       message: `Bugünkü ceza sayısı güncellendi: ${count}`,
+    });
+    
+    res.json(penalty);
+  } catch (error) {
+    console.error('Error updating penalty:', error);
+    res.status(500).json({ message: 'Error updating penalty' });
+  }
+});
+
+// Update penalty for a specific date (admin and ceza only)
+router.post('/date', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!['admin', 'ceza'].includes(user.role)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    const { date, count } = req.body;
+    
+    if (!date || typeof count !== 'number' || count < 0) {
+      return res.status(400).json({ message: 'Valid date and count are required' });
+    }
+    
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+    const nextDay = new Date(targetDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+    
+    let penalty = await Penalty.findOne({
+      date: { $gte: targetDate, $lt: nextDay },
+    });
+    
+    if (penalty) {
+      penalty.count = count;
+      penalty.createdBy = req.user.userId;
+      await penalty.save();
+    } else {
+      penalty = new Penalty({
+        date: targetDate,
+        count,
+        createdBy: req.user.userId,
+      });
+      await penalty.save();
+    }
+    
+    await logAction({
+      actorId: user._id,
+      actorName: user.fullName || user.username,
+      action: 'penalty_update',
+      targetType: 'penalty',
+      targetId: penalty._id.toString(),
+      message: `${targetDate.toLocaleDateString('tr-TR')} tarihli ceza sayısı güncellendi: ${count}`,
     });
     
     res.json(penalty);
