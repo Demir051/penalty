@@ -15,6 +15,8 @@ import TaskDetail from './pages/TaskDetail';
 import AdminLogs from './pages/AdminLogs';
 import UserManagement from './pages/UserManagement';
 import DailyTeamTracking from './pages/DailyTeamTracking';
+import ReceiptTracking from './pages/ReceiptTracking';
+import ErrorPage from './pages/ErrorPage';
 
 function App() {
   const [mode, setMode] = useState(() => localStorage.getItem('themeMode') || 'light');
@@ -31,12 +33,17 @@ function App() {
         primary: { main: isLight ? '#6366f1' : '#818cf8' },
         secondary: { main: isLight ? '#ec4899' : '#f472b6' },
         background: isLight
-          ? { default: '#f1f5f9', paper: '#ffffff' }
+          ? { default: '#f8fafc', paper: '#ffffff' }
           : { default: '#1e293b', paper: '#0f172a' },
         text: isLight
-          ? { primary: '#0f172a', secondary: '#475569' }
+          ? { primary: '#1e293b', secondary: '#64748b' }
           : { primary: '#f1f5f9', secondary: '#cbd5e1' },
         divider: isLight ? '#e2e8f0' : '#334155',
+        action: {
+          hover: isLight ? '#f1f5f9' : '#1e293b',
+          selected: isLight ? '#e0e7ff' : '#1e3a8a',
+          active: isLight ? '#c7d2fe' : '#3b82f6',
+        },
       },
       components: {
         MuiCssBaseline: {
@@ -174,11 +181,20 @@ function App() {
           <Route path="tasks" element={<TasksBoard />} />
           <Route path="tasks/:taskId" element={<TaskDetail />} />
           <Route path="daily-tracking" element={<DailyTeamTracking />} />
+          <Route path="receipt-tracking" element={<ReceiptTracking />} />
           <Route path="logs" element={<AdminLogs />} />
         </Route>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={
+          <PrivateRoute>
+            <ErrorPage 
+              title="Sayfa Bulunamadı" 
+              message="Aradığınız sayfa mevcut değil veya erişim yetkiniz bulunmamaktadır." 
+              showBackButton={true}
+            />
+          </PrivateRoute>
+        } />
       </Routes>
     </ThemeProvider>
   );

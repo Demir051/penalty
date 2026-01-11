@@ -5,13 +5,26 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import fs from 'fs/promises';
 import { existsSync, unlinkSync } from 'fs';
-import { authenticateToken } from '../middleware/auth.js';
+import mongoose from 'mongoose';
+import { authenticateToken, validateObjectId } from '../middleware/auth.js';
 import TrafficPenalty from '../models/TrafficPenalty.js';
 import User from '../models/User.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Helper function to validate and sanitize date
+const validateDate = (dateString) => {
+  if (!dateString || typeof dateString !== 'string') {
+    return null;
+  }
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+};
 
 // Configure multer for file uploads
 const upload = multer({
@@ -484,8 +497,13 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Get single penalty by ID
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateToken, validateObjectId, async (req, res) => {
   try {
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid penalty ID format' });
+    }
+
     const penalty = await TrafficPenalty.findById(req.params.id);
     if (!penalty) {
       return res.status(404).json({ message: 'Penalty not found' });
@@ -498,16 +516,39 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // Update penalty
-router.patch('/:id', authenticateToken, async (req, res) => {
+router.patch('/:id', authenticateToken, validateObjectId, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
-    if (!user || (user.role !== 'admin' && user.role !== 'ceza')) {
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    if (user.role !== 'admin' && user.role !== 'ceza') {
       return res.status(403).json({ message: 'Only admins and ceza role can update penalties' });
     }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid penalty ID format' });
+    }
+
+    // Sanitize update data - only allow specific fields
+    const allowedFields = ['surucuOdemişMi', 'yolcuOdemişMi', 'saibeliMi', 'not', 'updatedAt'];
+    const updateData = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        if (field === 'not' && typeof req.body[field] === 'string') {
+          // Sanitize note field
+          updateData[field] = req.body[field].trim().slice(0, 1000).replace(/<script[^>]*>.*?<\/script>/gi, '');
+        } else {
+          updateData[field] = req.body[field];
+        }
+      }
+    });
+    updateData.updatedAt = new Date();
     
     const penalty = await TrafficPenalty.findByIdAndUpdate(
       req.params.id,
-      { ...req.body, updatedAt: new Date() },
+      updateData,
       { new: true, runValidators: true }
     );
     
@@ -530,8 +571,28 @@ router.get('/stats/overview', authenticateToken, async (req, res) => {
     const dateFilter = {};
     if (startDate || endDate) {
       dateFilter.olayTarihi = {};
-      if (startDate) dateFilter.olayTarihi.$gte = new Date(startDate);
-      if (endDate) dateFilter.olayTarihi.$lte = new Date(endDate);
+      
+      // Validate and parse dates
+      if (startDate) {
+        const start = validateDate(startDate);
+        if (!start) {
+          return res.status(400).json({ message: 'Invalid startDate format. Use ISO format (YYYY-MM-DD)' });
+        }
+        dateFilter.olayTarihi.$gte = start;
+      }
+      
+      if (endDate) {
+        const end = validateDate(endDate);
+        if (!end) {
+          return res.status(400).json({ message: 'Invalid endDate format. Use ISO format (YYYY-MM-DD)' });
+        }
+        dateFilter.olayTarihi.$lte = end;
+      }
+      
+      // Validate date range
+      if (startDate && endDate && dateFilter.olayTarihi.$gte > dateFilter.olayTarihi.$lte) {
+        return res.status(400).json({ message: 'Start date must be before or equal to end date' });
+      }
     }
     
     // Total penalties

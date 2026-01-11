@@ -14,8 +14,19 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    if (!username || !password) {
-      return res.status(400).json({ message: 'Username and password are required' });
+    // Input validation and sanitization
+    if (!username || typeof username !== 'string' || !password || typeof password !== 'string') {
+      return res.status(400).json({ message: 'Username and password are required and must be strings' });
+    }
+
+    // Sanitize inputs (prevent injection attacks)
+    const sanitizedUsername = username.trim().slice(0, 50).replace(/[<>]/g, '');
+    if (!sanitizedUsername || sanitizedUsername.length < 3) {
+      return res.status(400).json({ message: 'Invalid username format' });
+    }
+
+    if (password.length < 6 || password.length > 100) {
+      return res.status(400).json({ message: 'Invalid password length' });
     }
 
     // Check rate limiting
@@ -29,7 +40,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ username: sanitizedUsername });
     if (!user) {
       // Increment failed attempts
       attempts.count++;
@@ -39,6 +50,11 @@ router.post('/login', async (req, res) => {
       }
       loginAttempts.set(ip, attempts);
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(403).json({ message: 'Account is deactivated' });
     }
 
     const isPasswordValid = await user.comparePassword(password);
@@ -60,9 +76,15 @@ router.post('/login', async (req, res) => {
     user.lastActiveAt = new Date();
     await user.save();
 
+    // Check JWT secret
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret || jwtSecret === 'your-secret-key') {
+      console.error('WARNING: JWT_SECRET is not set or using default value. This is a security risk!');
+    }
+
     const token = jwt.sign(
-      { userId: user._id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
+      { userId: user._id.toString(), username: user.username, role: user.role },
+      jwtSecret || 'your-secret-key',
       { expiresIn: '7d' }
     );
 
@@ -97,15 +119,27 @@ router.get('/verify', async (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) {
+    if (!token || typeof token !== 'string') {
       return res.status(401).json({ message: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+    const decoded = jwt.verify(token, jwtSecret);
+
+    // Validate decoded token structure
+    if (!decoded || !decoded.userId) {
+      return res.status(401).json({ message: 'Invalid token payload' });
+    }
+
     const user = await User.findById(decoded.userId).select('-password');
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(403).json({ message: 'Account is deactivated' });
     }
 
     // Update last active
@@ -114,6 +148,9 @@ router.get('/verify', async (req, res) => {
 
     res.json({ user });
   } catch (error) {
+    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Invalid or expired token' });
+    }
     res.status(401).json({ message: 'Invalid token' });
   }
 });

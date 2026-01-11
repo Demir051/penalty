@@ -42,6 +42,15 @@ const notificationSchema = new mongoose.Schema({
     ref: 'Task',
     default: null,
   },
+  targetType: {
+    type: String,
+    enum: ['task', 'comment', 'mention'],
+    default: null,
+  },
+  targetId: {
+    type: String,
+    default: null,
+  },
   isGroupMention: {
     type: Boolean,
     default: false,

@@ -1,7 +1,8 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import DailyTracking from '../models/DailyTracking.js';
 import User from '../models/User.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, validateObjectId } from '../middleware/auth.js';
 import { logAction } from '../utils/activityLogger.js';
 
 const router = express.Router();
@@ -92,8 +93,17 @@ router.post('/', authenticateToken, checkAccess, async (req, res) => {
     const { date, userId, isHere, tasks, note } = req.body;
     const currentUser = req.currentUser;
 
-    if (!date || !userId) {
-      return res.status(400).json({ message: 'Date and userId are required' });
+    // Input validation
+    if (!date || typeof date !== 'string') {
+      return res.status(400).json({ message: 'Date is required and must be a string' });
+    }
+    if (!userId || typeof userId !== 'string') {
+      return res.status(400).json({ message: 'userId is required and must be a string' });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: 'Invalid userId format' });
     }
 
     // Check if user is trying to update someone else's entry
@@ -146,9 +156,15 @@ router.post('/', authenticateToken, checkAccess, async (req, res) => {
       'Diğer (?)',
     ];
 
+    // Sanitize tasks array
     const filteredTasks = Array.isArray(tasks) 
-      ? tasks.filter(task => validTasks.includes(task))
+      ? tasks.filter(task => typeof task === 'string' && validTasks.includes(task))
       : [];
+
+    // Sanitize note (prevent XSS, limit length)
+    const sanitizedNote = note && typeof note === 'string' 
+      ? note.trim().slice(0, 1000).replace(/<script[^>]*>.*?<\/script>/gi, '')
+      : '';
 
     // Find existing entry or create new one
     let entry = await DailyTracking.findOne({
@@ -160,18 +176,18 @@ router.post('/', authenticateToken, checkAccess, async (req, res) => {
 
     if (entry) {
       // Update existing entry
-      entry.isHere = isHere !== undefined ? isHere : entry.isHere;
+      entry.isHere = isHere !== undefined ? Boolean(isHere) : entry.isHere;
       entry.tasks = filteredTasks;
-      entry.note = note !== undefined ? note : entry.note;
+      entry.note = sanitizedNote;
       entry.updatedAt = new Date();
     } else {
       // Create new entry
       entry = new DailyTracking({
         date: startOfDay,
         user: userId,
-        isHere: isHere !== undefined ? isHere : false,
+        isHere: isHere !== undefined ? Boolean(isHere) : false,
         tasks: filteredTasks,
-        note: note || '',
+        note: sanitizedNote,
       });
     }
 
@@ -204,10 +220,15 @@ router.post('/', authenticateToken, checkAccess, async (req, res) => {
 
 // Update daily tracking entry
 // PATCH /api/daily-tracking/:id
-router.patch('/:id', authenticateToken, checkAccess, async (req, res) => {
+router.patch('/:id', authenticateToken, checkAccess, validateObjectId, async (req, res) => {
   try {
     const { isHere, tasks, note } = req.body;
     const currentUser = req.currentUser;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid entry ID format' });
+    }
 
     const entry = await DailyTracking.findById(req.params.id).populate('user');
     
@@ -242,13 +263,18 @@ router.patch('/:id', authenticateToken, checkAccess, async (req, res) => {
       'Diğer (?)',
     ];
 
-    if (isHere !== undefined) entry.isHere = isHere;
+    if (isHere !== undefined) entry.isHere = Boolean(isHere);
     if (tasks !== undefined) {
       entry.tasks = Array.isArray(tasks) 
-        ? tasks.filter(task => validTasks.includes(task))
+        ? tasks.filter(task => typeof task === 'string' && validTasks.includes(task))
         : [];
     }
-    if (note !== undefined) entry.note = note;
+    if (note !== undefined) {
+      // Sanitize note (prevent XSS, limit length)
+      entry.note = typeof note === 'string' 
+        ? note.trim().slice(0, 1000).replace(/<script[^>]*>.*?<\/script>/gi, '')
+        : '';
+    }
     entry.updatedAt = new Date();
 
     await entry.save();

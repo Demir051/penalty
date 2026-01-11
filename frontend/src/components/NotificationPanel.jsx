@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Drawer,
   Box,
@@ -34,6 +35,7 @@ const NotificationPanel = ({ open, onClose }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (open) {
@@ -72,6 +74,52 @@ const NotificationPanel = ({ open, onClose }) => {
       if (import.meta.env.DEV) {
         console.error('Error fetching unread count:', error);
       }
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    // Mark as read if not already read
+    if (!notification.read) {
+      await markAsRead(notification._id);
+    }
+    
+    // Navigate to task detail if taskId or targetId exists
+    let taskId = null;
+    
+    // Convert taskId to string if it's an object
+    if (notification.taskId) {
+      taskId = typeof notification.taskId === 'object' && notification.taskId._id 
+        ? notification.taskId._id.toString()
+        : notification.taskId.toString();
+    } else if (notification.targetId) {
+      taskId = typeof notification.targetId === 'object' && notification.targetId._id
+        ? notification.targetId._id.toString()
+        : notification.targetId.toString();
+    }
+    
+    // If still no taskId, try to extract from link
+    if (!taskId && notification.link) {
+      // Extract taskId from link if it's a query parameter
+      const taskIdMatch = notification.link.match(/taskId=([^&]+)/);
+      if (taskIdMatch) {
+        taskId = taskIdMatch[1];
+      }
+      // Also check if link contains /tasks/ path
+      const tasksPathMatch = notification.link.match(/\/tasks\/([^/?]+)/);
+      if (tasksPathMatch) {
+        taskId = tasksPathMatch[1];
+      }
+    }
+    
+    // For task-related notifications (comment, completed, mention), navigate to task detail
+    if (taskId && typeof taskId === 'string' && (notification.type === 'task_comment' || notification.type === 'task_completed' || notification.type === 'mention' || notification.targetType === 'task')) {
+      navigate(`/dashboard/tasks/${taskId}`);
+      onClose();
+    } else if (notification.link && !taskId) {
+      // If link exists but no taskId, try to navigate using the link (only if it's a valid path)
+      const validLink = notification.link.startsWith('/') ? notification.link : `/${notification.link}`;
+      navigate(validLink);
+      onClose();
     }
   };
 
@@ -194,7 +242,7 @@ const NotificationPanel = ({ open, onClose }) => {
                       bgcolor: bgColor,
                       borderRadius: 2,
                       mb: 1,
-                      cursor: 'pointer',
+                      cursor: (notification.taskId || notification.link) ? 'pointer' : 'default',
                       border: !notification.read ? '1px solid' : '1px solid transparent',
                       borderColor: !notification.read 
                         ? (notification.type === 'mention' 
@@ -207,10 +255,11 @@ const NotificationPanel = ({ open, onClose }) => {
                         : 'transparent',
                       '&:hover': {
                         bgcolor: notification.read ? 'action.hover' : bgColor,
+                        transform: (notification.taskId || notification.link) ? 'translateX(-4px)' : 'none',
                       },
                       transition: 'all 0.2s',
                     }}
-                    onClick={() => !notification.read && markAsRead(notification._id)}
+                    onClick={() => handleNotificationClick(notification)}
                   >
                     <ListItemAvatar>
                       <Avatar 

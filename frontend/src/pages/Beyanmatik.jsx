@@ -15,6 +15,8 @@ import {
   Alert,
   CircularProgress,
   Stack,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { Save, Send, ContentCopy, CheckCircle } from '@mui/icons-material';
 import axios from 'axios';
@@ -22,6 +24,8 @@ import { useAuth } from '../context/AuthContext';
 
 const Beyanmatik = () => {
   const { user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   // Form state
   const [formData, setFormData] = useState({
     // Temel bilgiler
@@ -42,30 +46,6 @@ const Beyanmatik = () => {
     aracMarkaModel: '',
     aracPlaka: '',
     surucuYolculukSayisi: '',
-    // Diğer bilgiler
-    cevirme: '',
-    yolcuNeredeOturuyordu: '',
-    resmiKurumaTagSozlesmesi: '',
-    tagDendigindeTepki: '',
-    tagOlduguNasilAnlasildi: '',
-    polisMemuru: '',
-    kacinciCezasi: '',
-    sorguDurumu: '',
-    hangiAndaCeza: '',
-    erkenUyariyaDustuMu: '',
-    surucuyeBilgiVerildiMi: '',
-    aracHangiOtoparkaCekildi: '',
-    polisTelefonBaktiMi: '',
-    telefonBakildiMi: '',
-    aracAramaYapildiMi: '',
-    tutanakImzaAtildiMi: '',
-    videoSesKaydiMevcutMu: '',
-    sorguEsnasindaAractanIndirildiMi: '',
-    telefonBakmakIstedilerMi: '',
-    telefonBaktilarMi: '',
-    caprazSorguYaptilarMi: '',
-    sorgudaBaskiYaptilarMi: '',
-    zorlaTutanakImzalattilarMi: '',
     not: '',
   });
 
@@ -73,6 +53,7 @@ const Beyanmatik = () => {
   const [answers, setAnswers] = useState({});
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [validationError, setValidationError] = useState('');
 
   const handleFormChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -361,18 +342,18 @@ const Beyanmatik = () => {
     const olayTarihi = formData.olayTarihi || answers[3];
     const olaySaati = formData.olaySaati || answers[4];
     const olayYeri = formData.olayYeri || answers[5];
-    const cevirme = formData.cevirme || answers[10];
-    const yolcuKoltuk = formData.yolcuNeredeOturuyordu || answers[11];
-    const tagSozlesmesi = formData.resmiKurumaTagSozlesmesi || answers[12];
-    const tagTepki = formData.tagDendigindeTepki || answers[13];
-    const tagAnlasildi = formData.tagOlduguNasilAnlasildi || answers[21];
-    const sorguDurumu = formData.sorguDurumu || (answers[19] === 'Evet' ? 'Çapraz' : '');
-    const otopark = formData.aracHangiOtoparkaCekildi || answers[15];
-    const arama = formData.aracAramaYapildiMi || answers[16];
-    const imza = formData.tutanakImzaAtildiMi || answers[17];
-    const kayit = formData.videoSesKaydiMevcutMu || answers[18];
-    const aractanIndirildi = formData.sorguEsnasindaAractanIndirildiMi || answers[20];
-    const zorlaImza = formData.zorlaTutanakImzalattilarMi || answers[24];
+    const cevirme = answers[10];
+    const yolcuKoltuk = answers[11];
+    const tagSozlesmesi = answers[12];
+    const tagTepki = answers[13];
+    const tagAnlasildi = answers[21];
+    const sorguDurumu = answers[19] === 'Evet' ? 'Çapraz' : '';
+    const otopark = answers[15];
+    const arama = answers[16];
+    const imza = answers[17];
+    const kayit = answers[18];
+    const aractanIndirildi = answers[20];
+    const zorlaImza = answers[27];
     
     // Yolcu koltuk formatı
     let yolcuKoltukText = yolcuKoltuk;
@@ -392,7 +373,7 @@ const Beyanmatik = () => {
     
     let text = `Ceza No: ${formData.cezaNo || ''}
 Olay tarihi: ${olayTarihi ? formatDate(olayTarihi) : ''}
-Olay saati: ${olaySaati ? formatTime(olaySaati) : ''}
+Olay saati: ${olaySaati || ''}
 Olay yeri: ${olayYeri || ''}
 Yolcu ID: ${formData.yolcuId || ''}
 Yolcu ismi: ${formData.yolcuIsmi || ''}
@@ -400,7 +381,7 @@ Yolcu tel no: ${formData.yolcuTelNo || ''}
 Sürücü ID: ${formData.surucuId || ''}
 Sürücü ismi: ${formData.surucuIsmi || ''}
 Sürücü tel no: ${formData.surucuTelNo || ''}
-Sürücü kayıt tarihi: ${formData.surucuKayitTarihi ? formatDateTime(formData.surucuKayitTarihi) : ''}
+Sürücü kayıt tarihi: ${formData.surucuKayitTarihi || ''}
 Araç marka / model: ${formData.aracMarkaModel || ''}
 Araç plaka: ${formData.aracPlaka || ''}
 Yolcu yolculuk sayısı: ${formData.yolcuYolculukSayisi || ''}
@@ -410,14 +391,8 @@ Yolcu nerede oturuyordu?: ${yolcuKoltukText || ''}
 Resmi kuruma Tag sürüşü olduğu söylendi mi?: ${tagSozlesmesi || ''}
 Tag dendiğinde nasıl tepki aldı?: ${tagTepki || ''}
 Tag olduğu nasıl anlaşıldı?: ${tagAnlasildi || ''}
-Ceza kesen memur: ${formData.polisMemuru || ''}
-Kaçıncı cezası: ${formData.kacinciCezasi || ''}
 Sorgu durumu: ${sorguDurumu || ''}
-Hangi anda ceza kesildi?: ${formData.hangiAndaCeza || ''}
-Erken uyarıya düştü mü?: ${formData.erkenUyariyaDustuMu || ''}
-Düştüyse sürücüye bilgi verildi mi?: ${formData.surucuyeBilgiVerildiMi || ''}
 Araç hangi otoparka çekildi?: ${otopark || ''}
-Polis cep telefonunu kendi eline alarak ya da sizin elinizde incelemek ekranına bakmak istedi mi?: ${formData.polisTelefonBaktiMi || ''}
 Arabanın gözle görülmeyen yerlerinde arama yaptı mı?: ${arama || ''}
 Ceza tutanağına imza attınız mı?: ${imza || ''}
 Video/ses kaydı mevcut mu?: ${kayitText || ''}
@@ -433,7 +408,7 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
   };
 
   const getTelefonBakmaAnswer = () => {
-    const answer = answers[22] || formData.telefonBakmakIstedilerMi;
+    const answer = answers[22];
     if (answer === 'Evet, istediler ve baktılar') return 'Evet, baktılar';
     if (answer === 'Evet, istediler ama bakmadılar') return 'Evet, bakmadılar';
     if (answer === 'Hayır, istemediler') return 'Hayır';
@@ -441,7 +416,7 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
   };
 
   const getCaprazSorguBaskiAnswer = () => {
-    const answer = answers[23] || formData.caprazSorguYaptilarMi;
+    const answer = answers[23];
     if (answer === 'Evet, çapraz sorgu yaptılar') return 'Evet';
     if (answer === 'Hayır, çapraz sorgu yapmadılar ama baskı yaptılar') return 'Hayır, Evet';
     if (answer === 'Hayır, ne çapraz sorgu ne baskı') return 'Hayır, Hayır';
@@ -476,7 +451,7 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
     // Olay saati
     const olaySaati = formData.olaySaati || answers[4];
     if (olaySaati) {
-      not += `Olay saati ${formatTime(olaySaati)} idi. `;
+      not += `Olay saati ${olaySaati} idi. `;
     }
     
     // Olay yeri
@@ -511,7 +486,7 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
     }
     
     // Yolcu nerede oturuyordu
-    const yolcuKoltuk = formData.yolcuNeredeOturuyordu || answers[11];
+    const yolcuKoltuk = answers[11];
     if (yolcuKoltuk) {
       let koltukText = '';
       if (yolcuKoltuk === 'Ön') {
@@ -527,13 +502,13 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
     }
     
     // TAG söylendi mi
-    const tagSozlesmesi = formData.resmiKurumaTagSozlesmesi || answers[12];
+    const tagSozlesmesi = answers[12];
     if (tagSozlesmesi === 'Hayır') {
       not += 'Ceza yazan polise TAG sürüşü olduğunu söylemedim. ';
     }
     
     // Memur davranışı
-    const tagTepki = formData.tagDendigindeTepki || answers[13];
+    const tagTepki = answers[13];
     if (tagTepki) {
       if (tagTepki === 'Normal') {
         not += 'Memurların bana karşı davranışları normaldi. ';
@@ -554,25 +529,25 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
     }
     
     // Otopark
-    const otopark = formData.aracHangiOtoparkaCekildi || answers[15];
+    const otopark = answers[15];
     if (otopark) {
       not += `${otopark} Yediemin Otoparkı'na çekildi. `;
     }
     
     // Arama yapıldı mı
-    const arama = formData.aracAramaYapildiMi || answers[16];
+    const arama = answers[16];
     if (arama === 'Hayır') {
       not += 'Aracımın gözle görülmeyen yerlerinde arama yapılmadı. ';
     }
     
     // İmza
-    const imza = formData.tutanakImzaAtildiMi || answers[17];
+    const imza = answers[17];
     if (imza === 'Hayır') {
       not += 'Ceza tutanağına imza atmadım. ';
     }
     
     // Video/ses kaydı
-    const kayit = formData.videoSesKaydiMevcutMu || answers[18];
+    const kayit = answers[18];
     if (kayit && kayit !== 'Hayır') {
       not += 'Olayla ilgili bir video veya ses kaydı aldım. ';
     }
@@ -586,13 +561,13 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
     }
     
     // Araçtan indirildi mi
-    const aractanIndirildi = formData.sorguEsnasindaAractanIndirildiMi || answers[20];
+    const aractanIndirildi = answers[20];
     if (aractanIndirildi === 'Evet') {
       not += 'Sorgu esnasında araçtan indirildik. ';
     }
     
     // TAG nasıl anlaşıldı
-    const tagAnlasildi = formData.tagOlduguNasilAnlasildi || answers[21];
+    const tagAnlasildi = answers[21];
     if (tagAnlasildi) {
       if (tagAnlasildi === 'Yolcudan öğrendiler' || tagAnlasildi === 'Yolcudan öğrendiler') {
         not += 'Memurun TAG sürüşü olduğunu anlamalarının sebebi yolcunun söylemlerinden elde ettikleri kanaattir. ';
@@ -622,7 +597,7 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
     }
     
     // Zorla imza
-    const zorlaImza = formData.zorlaTutanakImzalattilarMi || answers[24];
+    const zorlaImza = answers[27];
     if (zorlaImza === 'Hayır') {
       not += 'Zorla tutanak imzalatmadılar. ';
       not += 'İmzala dediler imzalamadım sonra polis çağırdılar münakaşa yaşandı biraz. ';
@@ -639,6 +614,41 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
   };
 
   const handleCopy = async () => {
+    // Validate all required fields
+    const missingFields = [];
+    
+    // Check formData fields
+    if (!formData.cezaNo?.trim()) missingFields.push('Ceza No');
+    if (!formData.olayTarihi && !answers[3]) missingFields.push('Olay Tarihi');
+    if (!formData.olaySaati && !answers[4]) missingFields.push('Olay Saati');
+    if (!formData.olayYeri?.trim() && !answers[5]) missingFields.push('Olay Yeri');
+    
+    // Check all questions (1-27)
+    for (let i = 1; i <= 27; i++) {
+      if (!answers[i] || (typeof answers[i] === 'string' && !answers[i].trim())) {
+        const question = questions.find(q => q.id === i);
+        if (question) {
+          missingFields.push(`Soru ${i}: ${question.question.substring(0, 50)}...`);
+        }
+      }
+    }
+    
+    // Check if not field is filled
+    if (!formData.not?.trim()) {
+      const notFromAnswers = generateNotFromAnswers();
+      if (!notFromAnswers.trim()) {
+        missingFields.push('NOT (Ek bilgiler)');
+      }
+    }
+    
+    if (missingFields.length > 0) {
+      setValidationError(`Lütfen tüm alanları doldurun:\n\n${missingFields.slice(0, 10).join('\n')}${missingFields.length > 10 ? `\n... ve ${missingFields.length - 10} alan daha` : ''}`);
+      setTimeout(() => setValidationError(''), 8000);
+      return;
+    }
+    
+    setValidationError('');
+    
     const text = generateBeyanText();
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -658,10 +668,17 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
   };
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
+    <Container maxWidth="xl" sx={{ py: { xs: 2, sm: 3 }, px: { xs: 1, sm: 2, md: 3 } }}>
+      {/* Validation Error */}
+      {validationError && (
+        <Alert severity="error" sx={{ mb: { xs: 2, sm: 3 }, fontSize: { xs: '0.875rem', sm: '1rem' }, whiteSpace: 'pre-line' }}>
+          {validationError}
+        </Alert>
+      )}
+      
       {/* Üst Açıklama */}
-      <Alert severity="info" sx={{ mb: 3 }}>
-        <Typography variant="body2">
+      <Alert severity="info" sx={{ mb: { xs: 2, sm: 3 }, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
+        <Typography variant="body2" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
           <strong>Öncelikle geçmiş olsun.</strong> Martı TAG, taşımacılık hizmeti veren bir uygulama değil; yalnızca
           yolculuk paylaşımı için teknolojik altyapı sağlayan bir platformdur. Martı TAG, 5651 sayılı Kanun kapsamında
           "yer sağlayıcı" statüsünde olup gerekli tüm yasal yükümlülüklerini yerine getirmektedir.
@@ -669,11 +686,11 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
       </Alert>
 
       {/* Logo ve Başlık */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: { xs: 2, sm: 3 }, gap: { xs: 1, sm: 2 }, flexWrap: 'wrap' }}>
         <Box
           sx={{
-            width: 80,
-            height: 80,
+            width: { xs: 60, sm: 80 },
+            height: { xs: 60, sm: 80 },
             bgcolor: '#4caf50',
             borderRadius: 2,
             display: 'flex',
@@ -681,30 +698,45 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
             justifyContent: 'center',
             color: 'white',
             fontWeight: 'bold',
-            fontSize: '1.5rem',
+            fontSize: { xs: '1.25rem', sm: '1.5rem' },
           }}
         >
           M
         </Box>
-        <Typography variant="h4" component="h1" fontWeight="bold">
+        <Typography variant="h4" component="h1" fontWeight="bold" sx={{ fontSize: { xs: '1.25rem', sm: '1.75rem', md: '2.125rem' } }}>
           SÜRÜCÜ BEYANMATİK
         </Typography>
       </Box>
 
-      <Grid container spacing={3}>
+      <Grid container spacing={{ xs: 2, sm: 3 }}>
         {/* Sol Sütun - Sürücü ve Yolcu Bilgileri (Scroll Yok) */}
         <Grid item xs={12} md={3}>
-          <Paper elevation={2} sx={{ p: 2, position: 'sticky', top: 20, maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
-            <Typography variant="subtitle1" gutterBottom sx={{ mb: 1.5, fontWeight: 600, fontSize: '0.95rem' }}>
+          <Paper 
+            elevation={2} 
+            sx={{ 
+              p: { xs: 1.5, sm: 2 }, 
+              position: { xs: 'static', md: 'sticky' }, 
+              top: { md: 20 }, 
+              maxHeight: { xs: 'none', md: 'calc(100vh - 100px)' }, 
+              overflowY: { xs: 'visible', md: 'auto' },
+              mb: { xs: 2, md: 0 },
+            }}
+          >
+            <Typography variant="subtitle1" gutterBottom sx={{ mb: { xs: 1, sm: 1.5 }, fontWeight: 600, fontSize: { xs: '0.875rem', sm: '0.95rem' } }}>
               Temel Bilgiler
             </Typography>
-            <Stack spacing={1.5}>
+            <Stack spacing={{ xs: 1, sm: 1.5 }}>
               <TextField
                 fullWidth
                 label="Ceza No"
                 value={formData.cezaNo}
                 onChange={(e) => handleFormChange('cezaNo', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -714,15 +746,24 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 onChange={(e) => handleFormChange('olayTarihi', e.target.value)}
                 size="small"
                 InputLabelProps={{ shrink: true }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
                 label="Olay Saati"
-                type="time"
                 value={formData.olaySaati}
                 onChange={(e) => handleFormChange('olaySaati', e.target.value)}
                 size="small"
-                InputLabelProps={{ shrink: true }}
+                placeholder="Örn: 14:30"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -730,21 +771,31 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.olayYeri}
                 onChange={(e) => handleFormChange('olayYeri', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
             </Stack>
 
-            <Divider sx={{ my: 2 }} />
+            <Divider sx={{ my: { xs: 1.5, sm: 2 } }} />
 
-            <Typography variant="subtitle1" gutterBottom sx={{ mb: 1.5, fontWeight: 600, fontSize: '0.95rem' }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ mb: { xs: 1, sm: 1.5 }, fontWeight: 600, fontSize: { xs: '0.875rem', sm: '0.95rem' } }}>
               Yolcu Bilgileri
             </Typography>
-            <Stack spacing={1.5}>
+            <Stack spacing={{ xs: 1, sm: 1.5 }}>
               <TextField
                 fullWidth
                 label="Yolcu ID"
                 value={formData.yolcuId}
                 onChange={(e) => handleFormChange('yolcuId', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -752,6 +803,11 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.yolcuIsmi}
                 onChange={(e) => handleFormChange('yolcuIsmi', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -759,6 +815,11 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.yolcuTelNo}
                 onChange={(e) => handleFormChange('yolcuTelNo', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -766,21 +827,31 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.yolcuYolculukSayisi}
                 onChange={(e) => handleFormChange('yolcuYolculukSayisi', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
             </Stack>
 
-            <Divider sx={{ my: 2 }} />
+            <Divider sx={{ my: { xs: 1.5, sm: 2 } }} />
 
-            <Typography variant="subtitle1" gutterBottom sx={{ mb: 1.5, fontWeight: 600, fontSize: '0.95rem' }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ mb: { xs: 1, sm: 1.5 }, fontWeight: 600, fontSize: { xs: '0.875rem', sm: '0.95rem' } }}>
               Sürücü Bilgileri
             </Typography>
-            <Stack spacing={1.5}>
+            <Stack spacing={{ xs: 1, sm: 1.5 }}>
               <TextField
                 fullWidth
                 label="Sürücü ID"
                 value={formData.surucuId}
                 onChange={(e) => handleFormChange('surucuId', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -788,6 +859,11 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.surucuIsmi}
                 onChange={(e) => handleFormChange('surucuIsmi', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -795,15 +871,24 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.surucuTelNo}
                 onChange={(e) => handleFormChange('surucuTelNo', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
                 label="Sürücü Kayıt Tarihi"
-                type="datetime-local"
                 value={formData.surucuKayitTarihi}
                 onChange={(e) => handleFormChange('surucuKayitTarihi', e.target.value)}
                 size="small"
-                InputLabelProps={{ shrink: true }}
+                placeholder="Örn: 01.01.2024, 12:30:00"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -811,6 +896,11 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.aracMarkaModel}
                 onChange={(e) => handleFormChange('aracMarkaModel', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -818,6 +908,11 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.aracPlaka}
                 onChange={(e) => handleFormChange('aracPlaka', e.target.value)}
                 size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
               <TextField
                 fullWidth
@@ -825,140 +920,11 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
                 value={formData.surucuYolculukSayisi}
                 onChange={(e) => handleFormChange('surucuYolculukSayisi', e.target.value)}
                 size="small"
-              />
-            </Stack>
-
-            <Divider sx={{ my: 2 }} />
-
-            <Typography variant="subtitle1" gutterBottom sx={{ mb: 1.5, fontWeight: 600, fontSize: '0.95rem' }}>
-              Diğer Bilgiler
-            </Typography>
-            <Stack spacing={1.5}>
-              <TextField
-                fullWidth
-                label="Çevirme (sivil/resmi)"
-                value={formData.cevirme}
-                onChange={(e) => handleFormChange('cevirme', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Yolcu nerede oturuyordu?"
-                value={formData.yolcuNeredeOturuyordu}
-                onChange={(e) => handleFormChange('yolcuNeredeOturuyordu', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Resmi kuruma Tag sürüşü olduğu söylendi mi?"
-                value={formData.resmiKurumaTagSozlesmesi}
-                onChange={(e) => handleFormChange('resmiKurumaTagSozlesmesi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Tag dendiğinde nasıl tepki aldı?"
-                value={formData.tagDendigindeTepki}
-                onChange={(e) => handleFormChange('tagDendigindeTepki', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Tag olduğu nasıl anlaşıldı?"
-                value={formData.tagOlduguNasilAnlasildi}
-                onChange={(e) => handleFormChange('tagOlduguNasilAnlasildi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Ceza kesen memur"
-                value={formData.polisMemuru}
-                onChange={(e) => handleFormChange('polisMemuru', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Kaçıncı cezası"
-                value={formData.kacinciCezasi}
-                onChange={(e) => handleFormChange('kacinciCezasi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Sorgu durumu"
-                value={formData.sorguDurumu}
-                onChange={(e) => handleFormChange('sorguDurumu', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Hangi anda ceza kesildi?"
-                value={formData.hangiAndaCeza}
-                onChange={(e) => handleFormChange('hangiAndaCeza', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Erken uyarıya düştü mü?"
-                value={formData.erkenUyariyaDustuMu}
-                onChange={(e) => handleFormChange('erkenUyariyaDustuMu', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Düştüyse sürücüye bilgi verildi mi?"
-                value={formData.surucuyeBilgiVerildiMi}
-                onChange={(e) => handleFormChange('surucuyeBilgiVerildiMi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Araç hangi otoparka çekildi?"
-                value={formData.aracHangiOtoparkaCekildi}
-                onChange={(e) => handleFormChange('aracHangiOtoparkaCekildi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Polis cep telefonunu bakmak istedi mi?"
-                value={formData.polisTelefonBaktiMi}
-                onChange={(e) => handleFormChange('polisTelefonBaktiMi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Arabanın gözle görülmeyen yerlerinde arama yaptı mı?"
-                value={formData.aracAramaYapildiMi}
-                onChange={(e) => handleFormChange('aracAramaYapildiMi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Ceza tutanağına imza attınız mı?"
-                value={formData.tutanakImzaAtildiMi}
-                onChange={(e) => handleFormChange('tutanakImzaAtildiMi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Video/ses kaydı mevcut mu?"
-                value={formData.videoSesKaydiMevcutMu}
-                onChange={(e) => handleFormChange('videoSesKaydiMevcutMu', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Sorgu esnasında araçtan indirildiniz mi?"
-                value={formData.sorguEsnasindaAractanIndirildiMi}
-                onChange={(e) => handleFormChange('sorguEsnasindaAractanIndirildiMi', e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Zorla tutanak imzalattılar mı?"
-                value={formData.zorlaTutanakImzalattilarMi}
-                onChange={(e) => handleFormChange('zorlaTutanakImzalattilarMi', e.target.value)}
-                size="small"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                  },
+                }}
               />
             </Stack>
           </Paper>
@@ -966,20 +932,28 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
 
         {/* Sağ Sütun - Sorular (Scroll Var) */}
         <Grid item xs={12} md={9}>
-          <Paper elevation={2} sx={{ p: 2, position: 'relative', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+          <Paper 
+            elevation={2} 
+            sx={{ 
+              p: { xs: 1.5, sm: 2 }, 
+              position: 'relative', 
+              maxHeight: { xs: 'none', md: 'calc(100vh - 100px)' }, 
+              overflowY: { xs: 'visible', md: 'auto' },
+            }}
+          >
             {loading && (
               <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
                 <CircularProgress size={32} />
               </Box>
             )}
-            <Typography variant="subtitle1" gutterBottom sx={{ mb: 2, fontWeight: 600, fontSize: '0.95rem' }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ mb: { xs: 1.5, sm: 2 }, fontWeight: 600, fontSize: { xs: '0.875rem', sm: '0.95rem' } }}>
               Sorular ve Cevaplar
             </Typography>
-            <Grid container spacing={1.5}>
+            <Grid container spacing={{ xs: 1, sm: 1.5 }}>
               {questions.map((question) => (
-                <Grid item xs={12} sm={6} key={question.id}>
-                  <Box sx={{ mb: 1.5 }}>
-                    <Typography variant="caption" fontWeight="medium" sx={{ mb: 0.5, fontSize: '0.75rem', display: 'block' }}>
+                <Grid item xs={12} sm={12} md={6} key={question.id}>
+                  <Box sx={{ mb: { xs: 1, sm: 1.5 } }}>
+                    <Typography variant="caption" fontWeight="medium" sx={{ mb: 0.5, fontSize: { xs: '0.7rem', sm: '0.75rem' }, display: 'block', wordBreak: 'break-word' }}>
                       {question.id}. {question.question}
                     </Typography>
                     {renderAnswerField(question)}
@@ -988,7 +962,7 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
               ))}
             </Grid>
 
-            <Divider sx={{ my: 2 }} />
+            <Divider sx={{ my: { xs: 1.5, sm: 2 } }} />
 
             <TextField
               fullWidth
@@ -999,13 +973,18 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
               value={formData.not}
               onChange={(e) => handleFormChange('not', e.target.value)}
               placeholder="Ek notlarınızı buraya yazabilirsiniz..."
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  fontSize: { xs: '0.875rem', sm: '1rem' },
+                },
+              }}
             />
 
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 3 }}>
-              <Button variant="outlined" startIcon={<Save />} onClick={handleSubmit}>
+            <Box sx={{ display: 'flex', gap: { xs: 1, sm: 2 }, justifyContent: { xs: 'center', sm: 'flex-end' }, flexWrap: 'wrap', mt: { xs: 2, sm: 3 } }}>
+              <Button variant="outlined" startIcon={<Save />} onClick={handleSubmit} fullWidth={isMobile} size={isMobile ? 'medium' : 'large'}>
                 Kaydet
               </Button>
-              <Button variant="contained" startIcon={<Send />} onClick={handleSubmit}>
+              <Button variant="contained" startIcon={<Send />} onClick={handleSubmit} fullWidth={isMobile} size={isMobile ? 'medium' : 'large'}>
                 Gönder
               </Button>
             </Box>
@@ -1014,26 +993,28 @@ NOT: ${formData.not || generateNotFromAnswers()}`;
       </Grid>
 
       {/* Oluşturulan Metin Bölümü */}
-      <Paper elevation={2} sx={{ p: 3, mt: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6" fontWeight={600}>
+      <Paper elevation={2} sx={{ p: { xs: 2, sm: 3 }, mt: { xs: 2, sm: 3 } }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: { xs: 1.5, sm: 2 }, flexWrap: 'wrap', gap: 1 }}>
+          <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
             Oluşturulan Beyan Metni
           </Typography>
           <Button
             variant="contained"
             startIcon={copied ? <CheckCircle /> : <ContentCopy />}
             onClick={handleCopy}
+            size={isMobile ? 'small' : 'medium'}
+            fullWidth={isMobile}
           >
             {copied ? 'Kopyalandı!' : 'Kopyala'}
           </Button>
         </Box>
-        <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default', maxHeight: 400, overflowY: 'auto' }}>
-          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.875rem' }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, bgcolor: 'background.default', maxHeight: { xs: 300, sm: 400 }, overflowY: 'auto' }}>
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: { xs: '0.75rem', sm: '0.875rem' }, wordBreak: 'break-word' }}>
             {generateBeyanText()}
           </Typography>
         </Paper>
         {copied && (
-          <Alert severity="success" sx={{ mt: 2 }}>
+          <Alert severity="success" sx={{ mt: { xs: 1.5, sm: 2 }, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
             Metin panoya kopyalandı!
           </Alert>
         )}

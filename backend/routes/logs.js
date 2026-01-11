@@ -14,7 +14,13 @@ router.get('/', authenticateToken, async (req, res) => {
       return res.status(403).json({ message: 'Admin access required' });
     }
 
-    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+    // Validate and sanitize limit
+    let limit = parseInt(req.query.limit, 10);
+    if (isNaN(limit) || limit < 1) {
+      limit = 200;
+    }
+    limit = Math.min(limit, 500); // Max 500
+    
     const logs = await Log.find()
       .sort({ createdAt: -1 })
       .limit(limit);
@@ -43,9 +49,15 @@ router.get('/mail-beyan-stats', authenticateToken, async (req, res) => {
       action: 'beyan_copy',
     }).sort({ createdAt: -1 });
 
+    // Receipt logları
+    const receiptLogs = await Log.find({
+      action: { $in: ['receipt_create', 'receipt_process'] },
+    }).sort({ createdAt: -1 });
+
     // Kullanıcı bazında istatistikler
     const mailStats = {};
     const beyanStats = {};
+    const receiptStats = {};
 
     mailLogs.forEach(log => {
       const key = log.actorName || 'Bilinmiyor';
@@ -65,11 +77,25 @@ router.get('/mail-beyan-stats', authenticateToken, async (req, res) => {
       beyanStats[key].total++;
     });
 
+    receiptLogs.forEach(log => {
+      const key = log.actorName || 'Bilinmiyor';
+      if (!receiptStats[key]) {
+        receiptStats[key] = { total: 0, processed: 0 };
+      }
+      if (log.action === 'receipt_process') {
+        receiptStats[key].processed = (receiptStats[key].processed || 0) + 1;
+      } else {
+        receiptStats[key].total++;
+      }
+    });
+
     res.json({
       mailLogs,
       beyanLogs,
+      receiptLogs,
       mailStats,
       beyanStats,
+      receiptStats,
     });
   } catch (error) {
     console.error('Error fetching mail/beyan stats:', error);
@@ -87,16 +113,25 @@ router.post('/mail-copy', authenticateToken, async (req, res) => {
 
     const { mailType, mailContent } = req.body;
 
+    // Sanitize inputs
+    const sanitizedMailType = mailType && typeof mailType === 'string' 
+      ? mailType.trim().slice(0, 100).replace(/[<>]/g, '')
+      : 'Bilinmiyor';
+    
+    const contentLength = mailContent && typeof mailContent === 'string' 
+      ? mailContent.length 
+      : 0;
+
     await logAction({
       actorId: user._id,
       actorName: user.fullName || user.username,
       action: 'mail_copy',
       targetType: 'mail',
       targetId: null,
-      message: `${mailType} maili kopyalandı`,
+      message: `${sanitizedMailType} maili kopyalandı`,
       metadata: {
-        mailType: mailType || 'Bilinmiyor',
-        contentLength: mailContent?.length || 0,
+        mailType: sanitizedMailType,
+        contentLength: contentLength,
       },
     });
 
@@ -117,6 +152,11 @@ router.post('/beyan-copy', authenticateToken, async (req, res) => {
 
     const { beyanContent } = req.body;
 
+    // Sanitize inputs
+    const contentLength = beyanContent && typeof beyanContent === 'string' 
+      ? beyanContent.length 
+      : 0;
+
     await logAction({
       actorId: user._id,
       actorName: user.fullName || user.username,
@@ -125,7 +165,7 @@ router.post('/beyan-copy', authenticateToken, async (req, res) => {
       targetId: null,
       message: 'Beyan metni kopyalandı',
       metadata: {
-        contentLength: beyanContent?.length || 0,
+        contentLength: contentLength,
       },
     });
 

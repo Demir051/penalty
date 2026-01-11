@@ -4,6 +4,33 @@ import { authenticateToken } from '../middleware/auth.js';
 import { logAction } from '../utils/activityLogger.js';
 import User from '../models/User.js';
 
+// Helper function to validate and sanitize date
+const validateDate = (dateString) => {
+  if (!dateString || typeof dateString !== 'string') {
+    return null;
+  }
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+};
+
+// Helper function to validate count
+const validateCount = (count) => {
+  if (typeof count !== 'number' || isNaN(count) || !isFinite(count)) {
+    return null;
+  }
+  if (count < 0) {
+    return null;
+  }
+  // Max reasonable count (prevent integer overflow)
+  if (count > 1000000) {
+    return null;
+  }
+  return Math.round(count);
+};
+
 const router = express.Router();
 
 // Get penalties for a date range
@@ -13,9 +40,20 @@ router.get('/', authenticateToken, async (req, res) => {
     const query = {};
     
     if (startDate && endDate) {
+      const start = validateDate(startDate);
+      const end = validateDate(endDate);
+      
+      if (!start || !end) {
+        return res.status(400).json({ message: 'Invalid date format. Use ISO format (YYYY-MM-DD)' });
+      }
+      
+      if (start > end) {
+        return res.status(400).json({ message: 'Start date must be before or equal to end date' });
+      }
+      
       query.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
+        $gte: start,
+        $lte: end,
       };
     }
     
@@ -105,14 +143,28 @@ router.get('/weekly', authenticateToken, async (req, res) => {
 router.get('/all', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
     if (!['admin', 'ceza'].includes(user.role)) {
       return res.status(403).json({ message: 'Access denied' });
     }
     
     const { startDate, endDate } = req.query;
-    const start = startDate ? new Date(startDate) : new Date();
+    
+    // Validate dates
+    const start = startDate ? validateDate(startDate) : new Date();
+    const end = endDate ? validateDate(endDate) : new Date();
+    
+    if (!start || !end) {
+      return res.status(400).json({ message: 'Invalid date format. Use ISO format (YYYY-MM-DD)' });
+    }
+    
+    if (start > end) {
+      return res.status(400).json({ message: 'Start date must be before or equal to end date' });
+    }
+    
     start.setHours(0, 0, 0, 0);
-    const end = endDate ? new Date(endDate) : new Date();
     end.setHours(23, 59, 59, 999);
     
     const penalties = await Penalty.find({
@@ -130,14 +182,19 @@ router.get('/all', authenticateToken, async (req, res) => {
 router.post('/today', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
     if (!['admin', 'ceza'].includes(user.role)) {
       return res.status(403).json({ message: 'Access denied' });
     }
     
     const { count } = req.body;
     
-    if (typeof count !== 'number' || count < 0) {
-      return res.status(400).json({ message: 'Valid count is required' });
+    // Validate and sanitize count
+    const validatedCount = validateCount(count);
+    if (validatedCount === null) {
+      return res.status(400).json({ message: 'Valid count is required (must be a non-negative number)' });
     }
     
     const today = new Date();
@@ -150,13 +207,13 @@ router.post('/today', authenticateToken, async (req, res) => {
     });
     
     if (penalty) {
-      penalty.count = count;
+      penalty.count = validatedCount;
       penalty.createdBy = req.user.userId;
       await penalty.save();
     } else {
       penalty = new Penalty({
         date: today,
-        count,
+        count: validatedCount,
         createdBy: req.user.userId,
       });
       await penalty.save();
@@ -168,7 +225,7 @@ router.post('/today', authenticateToken, async (req, res) => {
       action: 'penalty_update',
       targetType: 'penalty',
       targetId: penalty._id.toString(),
-      message: `Bugünkü ceza sayısı güncellendi: ${count}`,
+      message: `Bugünkü ceza sayısı güncellendi: ${validatedCount}`,
     });
     
     res.json(penalty);
@@ -182,17 +239,31 @@ router.post('/today', authenticateToken, async (req, res) => {
 router.post('/date', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
     if (!['admin', 'ceza'].includes(user.role)) {
       return res.status(403).json({ message: 'Access denied' });
     }
     
     const { date, count } = req.body;
     
-    if (!date || typeof count !== 'number' || count < 0) {
-      return res.status(400).json({ message: 'Valid date and count are required' });
+    // Validate date
+    if (!date || typeof date !== 'string') {
+      return res.status(400).json({ message: 'Date is required and must be a string' });
     }
     
-    const targetDate = new Date(date);
+    const targetDate = validateDate(date);
+    if (!targetDate) {
+      return res.status(400).json({ message: 'Invalid date format. Use ISO format (YYYY-MM-DD)' });
+    }
+    
+    // Validate and sanitize count
+    const validatedCount = validateCount(count);
+    if (validatedCount === null) {
+      return res.status(400).json({ message: 'Valid count is required (must be a non-negative number)' });
+    }
+    
     targetDate.setHours(0, 0, 0, 0);
     const nextDay = new Date(targetDate);
     nextDay.setDate(nextDay.getDate() + 1);
@@ -202,13 +273,13 @@ router.post('/date', authenticateToken, async (req, res) => {
     });
     
     if (penalty) {
-      penalty.count = count;
+      penalty.count = validatedCount;
       penalty.createdBy = req.user.userId;
       await penalty.save();
     } else {
       penalty = new Penalty({
         date: targetDate,
-        count,
+        count: validatedCount,
         createdBy: req.user.userId,
       });
       await penalty.save();
@@ -220,7 +291,7 @@ router.post('/date', authenticateToken, async (req, res) => {
       action: 'penalty_update',
       targetType: 'penalty',
       targetId: penalty._id.toString(),
-      message: `${targetDate.toLocaleDateString('tr-TR')} tarihli ceza sayısı güncellendi: ${count}`,
+      message: `${targetDate.toLocaleDateString('tr-TR')} tarihli ceza sayısı güncellendi: ${validatedCount}`,
     });
     
     res.json(penalty);

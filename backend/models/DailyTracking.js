@@ -63,3 +63,5 @@ dailyTrackingSchema.pre('save', function (next) {
 
 export default mongoose.model('DailyTracking', dailyTrackingSchema);
 
+
+

@@ -1,6 +1,7 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Notification from '../models/Notification.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, validateObjectId } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -11,9 +12,48 @@ router.get('/', authenticateToken, async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(100)
       .populate('fromUser', 'username fullName profileImage')
-      .populate('taskId', 'content');
+      .lean();
     
-    res.json(notifications);
+    // Convert taskId and targetId to strings, handle both ObjectId and populated objects
+    const formattedNotifications = notifications.map(notif => {
+      let taskId = null;
+      let targetId = null;
+      
+      // Handle taskId - can be ObjectId, populated object, or string
+      if (notif.taskId) {
+        if (typeof notif.taskId === 'object' && notif.taskId._id) {
+          taskId = notif.taskId._id.toString();
+        } else if (typeof notif.taskId === 'object' && notif.taskId.toString) {
+          taskId = notif.taskId.toString();
+        } else if (typeof notif.taskId === 'string') {
+          taskId = notif.taskId;
+        }
+      }
+      
+      // Handle targetId
+      if (notif.targetId) {
+        if (typeof notif.targetId === 'object' && notif.targetId._id) {
+          targetId = notif.targetId._id.toString();
+        } else if (typeof notif.targetId === 'object' && notif.targetId.toString) {
+          targetId = notif.targetId.toString();
+        } else if (typeof notif.targetId === 'string') {
+          targetId = notif.targetId;
+        }
+      } else if (taskId) {
+        targetId = taskId;
+      }
+      
+      return {
+        ...notif,
+        _id: notif._id?.toString() || notif._id,
+        taskId: taskId,
+        targetId: targetId || taskId,
+        toUser: notif.toUser?.toString() || notif.toUser,
+        fromUser: notif.fromUser?._id?.toString() || notif.fromUser?.toString() || notif.fromUser,
+      };
+    });
+    
+    res.json(formattedNotifications);
   } catch (error) {
     console.error('Error fetching notifications:', error);
     res.status(500).json({ message: 'Error fetching notifications' });
@@ -21,8 +61,13 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Mark notification as read
-router.patch('/:id/read', authenticateToken, async (req, res) => {
+router.patch('/:id/read', authenticateToken, validateObjectId, async (req, res) => {
   try {
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid notification ID format' });
+    }
+
     const notification = await Notification.findOne({
       _id: req.params.id,
       toUser: req.user.userId,

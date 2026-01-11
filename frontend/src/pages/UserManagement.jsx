@@ -276,7 +276,23 @@ const UserManagement = () => {
                   <TableRow key={user._id} hover>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar src={user.profileImage} sx={{ width: 32, height: 32 }}>
+                        <Avatar 
+                          src={
+                            user.profileImage
+                              ? (() => {
+                                  if (user.profileImage.startsWith('http://') || user.profileImage.startsWith('https://')) {
+                                    return user.profileImage;
+                                  }
+                                  if (user.profileImage.startsWith('data:')) {
+                                    return user.profileImage;
+                                  }
+                                  const baseURL = axios.defaults.baseURL || window.location.origin;
+                                  return `${baseURL}${user.profileImage.startsWith('/') ? '' : '/'}${user.profileImage}`;
+                                })()
+                              : undefined
+                          } 
+                          sx={{ width: 32, height: 32 }}
+                        >
                           {getInitials(user.fullName)}
                         </Avatar>
                         <Box>

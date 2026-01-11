@@ -26,7 +26,7 @@ import axios from 'axios';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Description } from '@mui/icons-material';
+import { Mail, Description, Receipt } from '@mui/icons-material';
 
 const AdminLogs = () => {
   const [logs, setLogs] = useState([]);
@@ -37,11 +37,15 @@ const AdminLogs = () => {
   const [mailBeyanStats, setMailBeyanStats] = useState({
     mailLogs: [],
     beyanLogs: [],
+    receiptLogs: [],
     mailStats: {},
     beyanStats: {},
+    receiptStats: {},
   });
   const [statsLoading, setStatsLoading] = useState(false);
   const logsPerPage = 20;
+  const statsPerPage = 9; // 3x3 grid için
+  const [statsPage, setStatsPage] = useState({ mail: 1, beyan: 1, receipt: 1 });
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -87,9 +91,9 @@ const AdminLogs = () => {
           <Chip label={`Toplam ${logs.length}`} size="small" />
         </Stack>
         
-        <Tabs value={tab} onChange={(e, newValue) => setTab(newValue)} sx={{ mb: 3 }}>
+        <Tabs value={tab} onChange={(e, newValue) => setTab(newValue)} sx={{ mb: 3 }} variant="scrollable" scrollButtons="auto">
           <Tab label="Tüm Loglar" />
-          <Tab label="Mail & Beyan İstatistikleri" />
+          <Tab label="Mail & Beyan & Makbuz İstatistikleri" />
         </Tabs>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -156,7 +160,9 @@ const AdminLogs = () => {
                     <Typography variant="h6" fontWeight="bold">Mail İstatistikleri</Typography>
                   </Box>
                   <Grid container spacing={2} sx={{ mb: 3 }}>
-                    {Object.entries(mailBeyanStats.mailStats).map(([userName, stats]) => (
+                    {Object.entries(mailBeyanStats.mailStats)
+                      .slice((statsPage.mail - 1) * statsPerPage, statsPage.mail * statsPerPage)
+                      .map(([userName, stats]) => (
                       <Grid item xs={12} sm={6} md={4} key={userName}>
                         <Card>
                           <CardContent>
@@ -183,6 +189,16 @@ const AdminLogs = () => {
                       </Grid>
                     ))}
                   </Grid>
+                  {Object.keys(mailBeyanStats.mailStats || {}).length > statsPerPage && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+                      <Pagination
+                        count={Math.ceil(Object.keys(mailBeyanStats.mailStats || {}).length / statsPerPage)}
+                        page={statsPage.mail}
+                        onChange={(e, newPage) => setStatsPage(prev => ({ ...prev, mail: newPage }))}
+                        color="primary"
+                      />
+                    </Box>
+                  )}
                   <TableContainer component={Paper} variant="outlined">
                     <Table size="small">
                       <TableHead>
@@ -214,7 +230,9 @@ const AdminLogs = () => {
                     <Typography variant="h6" fontWeight="bold">Beyan İstatistikleri</Typography>
                   </Box>
                   <Grid container spacing={2} sx={{ mb: 3 }}>
-                    {Object.entries(mailBeyanStats.beyanStats).map(([userName, stats]) => (
+                    {Object.entries(mailBeyanStats.beyanStats)
+                      .slice((statsPage.beyan - 1) * statsPerPage, statsPage.beyan * statsPerPage)
+                      .map(([userName, stats]) => (
                       <Grid item xs={12} sm={6} md={4} key={userName}>
                         <Card>
                           <CardContent>
@@ -232,6 +250,16 @@ const AdminLogs = () => {
                       </Grid>
                     ))}
                   </Grid>
+                  {Object.keys(mailBeyanStats.beyanStats || {}).length > statsPerPage && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+                      <Pagination
+                        count={Math.ceil(Object.keys(mailBeyanStats.beyanStats || {}).length / statsPerPage)}
+                        page={statsPage.beyan}
+                        onChange={(e, newPage) => setStatsPage(prev => ({ ...prev, beyan: newPage }))}
+                        color="primary"
+                      />
+                    </Box>
+                  )}
                   <TableContainer component={Paper} variant="outlined">
                     <Table size="small">
                       <TableHead>
@@ -242,6 +270,81 @@ const AdminLogs = () => {
                       </TableHead>
                       <TableBody>
                         {mailBeyanStats.beyanLogs.slice(0, 50).map((log) => (
+                          <TableRow key={log._id}>
+                            <TableCell>{log.actorName}</TableCell>
+                            <TableCell>{dayjs(log.createdAt).format('DD.MM.YYYY HH:mm')}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+
+                <Divider />
+
+                {/* Makbuz İstatistikleri */}
+                <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <Receipt sx={{ color: 'primary.main' }} />
+                    <Typography variant="h6" fontWeight="bold">Makbuz İstatistikleri</Typography>
+                  </Box>
+                  <Grid container spacing={2} sx={{ mb: 3 }}>
+                    {Object.entries(mailBeyanStats.receiptStats || {})
+                      .slice((statsPage.receipt - 1) * statsPerPage, statsPage.receipt * statsPerPage)
+                      .map(([userName, stats]) => (
+                      <Grid item xs={12} sm={6} md={4} key={userName}>
+                        <Card>
+                          <CardContent>
+                            <Typography variant="subtitle1" fontWeight="600" sx={{ mb: 1 }}>
+                              {userName}
+                            </Typography>
+                            <Typography variant="h4" color="primary.main" sx={{ mb: 1 }}>
+                              {stats.total || 0}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                              Toplam Makbuz
+                            </Typography>
+                            {stats.processed !== undefined && (
+                              <>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="h6" color="success.main">
+                                  {stats.processed || 0}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  İşlenen Makbuz
+                                </Typography>
+                              </>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                  {Object.keys(mailBeyanStats.receiptStats || {}).length > statsPerPage && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+                      <Pagination
+                        count={Math.ceil(Object.keys(mailBeyanStats.receiptStats || {}).length / statsPerPage)}
+                        page={statsPage.receipt}
+                        onChange={(e, newPage) => setStatsPage(prev => ({ ...prev, receipt: newPage }))}
+                        color="primary"
+                      />
+                    </Box>
+                  )}
+                  {Object.keys(mailBeyanStats.receiptStats || {}).length === 0 && (
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                      Henüz makbuz eklenmemiş
+                    </Typography>
+                  )}
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Kullanıcı</TableCell>
+                          <TableCell>Tarih</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(mailBeyanStats.receiptLogs || []).slice(0, 50).map((log) => (
                           <TableRow key={log._id}>
                             <TableCell>{log.actorName}</TableCell>
                             <TableCell>{dayjs(log.createdAt).format('DD.MM.YYYY HH:mm')}</TableCell>

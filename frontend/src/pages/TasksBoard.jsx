@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Container,
   Paper,
@@ -28,8 +28,16 @@ import {
   ListItem,
   ListItemAvatar,
   ListItemText,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
-import { Assignment, Comment as CommentIcon, CheckCircle, Delete, OpenInNew } from '@mui/icons-material';
+import { Assignment, Comment as CommentIcon, CheckCircle, Delete, OpenInNew, Edit } from '@mui/icons-material';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import { ResizableBox } from 'react-resizable';
+import 'react-resizable/css/styles.css';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -81,12 +89,20 @@ const TasksBoard = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMentionOpen, setSearchMentionOpen] = useState(false);
   const [searchMentionPosition, setSearchMentionPosition] = useState(0);
+  const quillRef = useRef(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editTaskId, setEditTaskId] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const [editPriority, setEditPriority] = useState('normal');
+  const [editing, setEditing] = useState(false);
+  const quillEditRef = useRef(null);
+  const [imageDialog, setImageDialog] = useState({ open: false, url: '', width: 400, height: 300 });
+  const [pendingImageIndex, setPendingImageIndex] = useState(null);
 
   // Check if user has access (only admin and ceza roles can access)
   useEffect(() => {
     if (!authLoading && user && user.role === 'uye') {
       navigate('/dashboard');
-      return;
     }
   }, [user, authLoading, navigate]);
 
@@ -117,25 +133,179 @@ const TasksBoard = () => {
     if (user && user.role !== 'uye') {
       fetchTasks();
       fetchUsers();
-      const interval = setInterval(fetchTasks, 20000);
-      return () => clearInterval(interval);
+      // Optimize polling: increase interval to 30 seconds for better performance
+      // Use longer interval when tab is not visible
+      let interval;
+      const handleVisibilityChange = () => {
+        if (document.hidden) {
+          // Tab is hidden, stop polling
+          if (interval) clearInterval(interval);
+        } else {
+          // Tab is visible, resume polling
+          if (interval) clearInterval(interval);
+          interval = setInterval(fetchTasks, 30000); // 30 seconds
+        }
+      };
+      
+      // Start polling
+      interval = setInterval(fetchTasks, 30000);
+      
+      // Listen for visibility changes
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+      return () => {
+        if (interval) clearInterval(interval);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
     }
   }, [user, fetchUsers]);
 
+  // Debug: Check if ReactQuill is mounted
+  useEffect(() => {
+    if (quillRef.current) {
+      console.log('ReactQuill is mounted:', quillRef.current);
+      const editor = quillRef.current.getEditor();
+      if (editor) {
+        console.log('Quill editor is available:', editor);
+      }
+    }
+  }, [newTask.content]);
+
+  // Quill modules configuration - wrapped in useMemo to prevent re-creation
+  const quillModules = useMemo(() => ({
+    toolbar: {
+      container: [
+        [{ 'header': [1, 2, 3, false] }],
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+        [{ 'color': [] }, { 'background': [] }],
+        ['link', 'image'],
+        ['clean']
+      ],
+      handlers: {
+        link: function(value) {
+          const quill = (quillRef.current || quillEditRef.current)?.getEditor();
+          if (!quill) return;
+          if (value) {
+            const range = quill.getSelection(true);
+            if (!range) return;
+            const text = quill.getText(range.index, range.length);
+            let url = prompt('Link URL girin:', text || '');
+            if (url) {
+              // If URL doesn't start with http:// or https://, add http://
+              if (!url.match(/^https?:\/\//i)) {
+                url = 'http://' + url;
+              }
+              quill.format('link', url);
+            }
+          } else {
+            quill.format('link', false);
+          }
+        },
+        image: function() {
+          const input = document.createElement('input');
+          input.setAttribute('type', 'file');
+          input.setAttribute('accept', 'image/*');
+          input.click();
+          
+          input.onchange = async () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            
+            // Validate file size (5MB)
+            if (file.size > 5 * 1024 * 1024) {
+              setMessage({ type: 'error', text: 'Resim boyutu 5MB\'dan küçük olmalıdır' });
+              return;
+            }
+            
+            try {
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                const quill = (quillRef.current || quillEditRef.current)?.getEditor();
+                if (!quill) return;
+                const range = quill.getSelection(true);
+                if (range) {
+                  const imageUrl = e.target?.result;
+                  // Store the range index and open dialog for size adjustment
+                  setPendingImageIndex(range.index);
+                  setImageDialog({ 
+                    open: true, 
+                    url: imageUrl, 
+                    width: 400, 
+                    height: 300 
+                  });
+                }
+              };
+              reader.readAsDataURL(file);
+            } catch (error) {
+              setMessage({ type: 'error', text: 'Resim yüklenemedi' });
+            }
+          };
+        }
+      }
+    }
+  }), [setMessage]);
+
+  const quillFormats = useMemo(() => [
+    'header', 'bold', 'italic', 'underline', 'strike',
+    'list', 'bullet', 'color', 'background', 'link', 'image'
+  ], []);
+
   const handleAddTask = async (e) => {
     e.preventDefault();
-    if (!newTask.content.trim()) return;
+    // Strip HTML tags to check if content is empty
+    const textContent = newTask.content.replace(/<[^>]*>/g, '').trim();
+    if (!textContent) return;
     setLoading(true);
     setMessage({ type: '', text: '' });
     try {
       await axios.post('/api/tasks', newTask);
       setNewTask({ content: '', priority: 'normal' });
+      // Clear quill editor
+      if (quillRef.current) {
+        quillRef.current.getEditor().setContents([]);
+      }
       await fetchTasks();
       setMessage({ type: 'success', text: 'Görev eklendi' });
     } catch (error) {
       setMessage({ type: 'error', text: error.response?.data?.message || 'Görev eklenemedi' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEditClick = (task) => {
+    setEditTaskId(task._id);
+    setEditContent(task.content || '');
+    setEditPriority(task.priority || 'normal');
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSave = async () => {
+    const textContent = editContent.replace(/<[^>]*>/g, '').trim();
+    if (!textContent) {
+      setMessage({ type: 'error', text: 'Görev içeriği boş olamaz' });
+      return;
+    }
+
+    try {
+      setEditing(true);
+      setMessage({ type: '', text: '' });
+      await axios.patch(`/api/tasks/${editTaskId}`, {
+        content: editContent,
+        priority: editPriority,
+      });
+      
+      await fetchTasks();
+      setEditDialogOpen(false);
+      setEditTaskId(null);
+      setEditContent('');
+      setEditPriority('normal');
+      setMessage({ type: 'success', text: 'Görev güncellendi' });
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.message || 'Görev güncellenirken bir hata oluştu' });
+    } finally {
+      setEditing(false);
     }
   };
 
@@ -210,21 +380,42 @@ const TasksBoard = () => {
     return mentioned;
   };
 
-  // Helper to render text with highlighted mentions
+  // Helper to escape HTML to prevent XSS
+  const escapeHtml = (text) => {
+    if (!text || typeof text !== 'string') return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  };
+
+  // Helper to render HTML content with highlighted mentions (for rich text editor content)
+  const renderHtmlWithMentions = (htmlContent) => {
+    if (!htmlContent || typeof htmlContent !== 'string') return '';
+    
+    // For now, just return the HTML content as-is
+    // Mention highlighting in HTML would require more complex parsing
+    // We'll keep it simple and let ReactQuill handle the formatting
+    return htmlContent;
+  };
+
+  // Helper to render text with highlighted mentions (XSS-safe)
   const renderTextWithMentions = (text) => {
-    if (!text) return text;
+    if (!text || typeof text !== 'string') return '';
+    
+    // Sanitize input - React will escape automatically, but we'll also sanitize manually
+    const sanitizedText = text.replace(/[<>]/g, '');
     const mentionRegex = /@(\w+)/g;
     const parts = [];
     let lastIndex = 0;
     let match;
     const currentUsername = user?.username;
 
-    while ((match = mentionRegex.exec(text)) !== null) {
+    while ((match = mentionRegex.exec(sanitizedText)) !== null) {
       if (!match || !match[0]) continue; // Safety check
       
-      // Add text before mention
+      // Add text before mention (React automatically escapes HTML)
       if (match.index > lastIndex) {
-        parts.push(text.substring(lastIndex, match.index));
+        parts.push(sanitizedText.substring(lastIndex, match.index));
       }
       
       // Check if this mention is for current user
@@ -237,7 +428,7 @@ const TasksBoard = () => {
       // Get mentioned users for this specific mention
       const mentionedUsers = getMentionedUsersForMention(mentionText);
       
-      // Add clickable mention link
+      // Add clickable mention link (React automatically escapes content)
       parts.push(
         <span
           key={match.index}
@@ -268,20 +459,27 @@ const TasksBoard = () => {
       lastIndex = match.index + mentionText.length;
     }
     
-    // Add remaining text
-    if (lastIndex < text.length) {
-      parts.push(text.substring(lastIndex));
+    // Add remaining text (React automatically escapes)
+    if (lastIndex < sanitizedText.length) {
+      parts.push(sanitizedText.substring(lastIndex));
     }
     
-    return parts.length > 0 ? parts : text;
+    return parts.length > 0 ? parts : sanitizedText;
   };
 
   const handleComplete = async (taskId) => {
+    setConfirm({ open: true, type: 'complete', taskId, commentId: null });
+  };
+
+  const confirmComplete = async () => {
+    if (!confirm.taskId) return;
     try {
-      await axios.patch(`/api/tasks/${taskId}/complete`);
+      await axios.patch(`/api/tasks/${confirm.taskId}/complete`);
       await fetchTasks();
+      setConfirm({ open: false, type: '', taskId: null, commentId: null });
     } catch (error) {
       setMessage({ type: 'error', text: 'Görev tamamlanamadı' });
+      setConfirm({ open: false, type: '', taskId: null, commentId: null });
     }
   };
 
@@ -315,12 +513,13 @@ const TasksBoard = () => {
   };
 
   const handleConfirm = async () => {
-    if (confirm.type === 'task' && confirm.taskId) {
+    if (confirm.type === 'complete' && confirm.taskId) {
+      await confirmComplete();
+    } else if (confirm.type === 'task' && confirm.taskId) {
       await handleDeleteTask(confirm.taskId);
     } else if (confirm.type === 'comment' && confirm.taskId && confirm.commentId) {
       await handleDeleteComment(confirm.taskId, confirm.commentId);
     }
-    setConfirm({ open: false, type: '', taskId: null, commentId: null });
   };
 
   const handleDeleteTask = async (taskId) => {
@@ -444,7 +643,7 @@ const TasksBoard = () => {
   }, [tasks, searchQuery, users]);
 
   // Show loading while checking auth
-  if (authLoading) {
+  if (authLoading || !user) {
     return (
       <Container maxWidth="lg" sx={{ mt: 2, display: 'flex', justifyContent: 'center', py: 4 }}>
         <CircularProgress />
@@ -453,7 +652,7 @@ const TasksBoard = () => {
   }
 
   // Block access for 'uye' role
-  if (user && user.role === 'uye') {
+  if (user.role === 'uye') {
     return (
       <Container maxWidth="lg" sx={{ mt: 2 }}>
         <Alert severity="error">Bu sayfaya erişim yetkiniz bulunmamaktadır.</Alert>
@@ -462,107 +661,166 @@ const TasksBoard = () => {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 2 }}>
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h5" fontWeight="bold" gutterBottom>
+    <Container maxWidth="lg" sx={{ mt: { xs: 1, sm: 2 }, px: { xs: 1, sm: 2, md: 3 }, py: { xs: 1, sm: 2 } }}>
+      <Paper 
+        sx={{ 
+          p: { xs: 2, sm: 3 }, 
+          mb: { xs: 2, sm: 3 }, 
+          width: '100%',
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+        }}
+      >
+        <Typography variant="h5" fontWeight="bold" gutterBottom sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' }, mb: 2 }}>
           Görev Oluştur
         </Typography>
         <form onSubmit={handleAddTask}>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <Box sx={{ position: 'relative', flex: 1 }}>
-              <TextField
-                fullWidth
-                label="Görev açıklaması"
-                value={newTask.content}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setNewTask((prev) => ({ ...prev, content: value }));
-                  // Check for @mention
-                  const cursorPos = e.target.selectionStart || value.length;
-                  const suggestions = getMentionSuggestions(value, cursorPos);
-                  if (suggestions.length > 0) {
-                    setMentionOpen({ taskId: 'new', position: cursorPos });
-                    setMentionQuery(suggestions[0]?.username || '');
-                  } else {
-                    setMentionOpen({ taskId: null, position: null });
-                  }
+          <Stack spacing={2} sx={{ width: '100%' }}>
+            <Box sx={{ position: 'relative', width: '100%', mb: 2 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: { xs: '0.75rem', sm: '0.875rem' }, fontWeight: 500 }}>
+                Görev açıklaması
+              </Typography>
+              <Box 
+                id="task-quill-editor"
+                sx={{ 
+                  mb: 0,
+                  position: 'relative',
+                  width: '100%',
+                  minHeight: '280px',
+                  bgcolor: 'background.paper',
+                  border: '2px solid',
+                  borderColor: 'divider',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  '& .quill': {
+                    width: '100% !important',
+                    display: 'flex !important',
+                    flexDirection: 'column !important',
+                    minHeight: '280px !important',
+                    visibility: 'visible !important',
+                    opacity: '1 !important',
+                    position: 'relative !important',
+                    zIndex: 1,
+                  },
+                  '& .ql-toolbar': {
+                    borderRadius: '6px 6px 0 0 !important',
+                    border: 'none !important',
+                    borderBottom: '1px solid !important',
+                    borderColor: 'divider !important',
+                    bgcolor: 'background.default !important',
+                    display: 'flex !important',
+                    flexWrap: 'wrap !important',
+                    position: 'relative !important',
+                    zIndex: 2,
+                    width: '100% !important',
+                    visibility: 'visible !important',
+                    opacity: '1 !important',
+                    padding: '10px 12px !important',
+                    minHeight: '42px !important',
+                    '& .ql-picker-label': {
+                      color: 'text.primary !important',
+                    },
+                    '& .ql-stroke': {
+                      stroke: 'text.primary !important',
+                      strokeWidth: '1.5 !important',
+                    },
+                    '& .ql-fill': {
+                      fill: 'text.primary !important',
+                    },
+                    '& button': {
+                      color: 'text.primary !important',
+                      '&:hover': {
+                        bgcolor: 'action.hover !important',
+                      },
+                    },
+                  },
+                  '& .ql-container': {
+                    border: 'none !important',
+                    borderRadius: '0 0 6px 6px !important',
+                    bgcolor: 'background.paper !important',
+                    minHeight: '238px !important',
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                    position: 'relative !important',
+                    zIndex: 1,
+                    width: '100% !important',
+                    visibility: 'visible !important',
+                    opacity: '1 !important',
+                    flex: 1,
+                  },
+                  '& .ql-editor': {
+                    minHeight: '238px !important',
+                    color: 'text.primary !important',
+                    position: 'relative !important',
+                    zIndex: 1,
+                    visibility: 'visible !important',
+                    opacity: '1 !important',
+                    padding: '16px !important',
+                    lineHeight: 1.6,
+                    '&.ql-blank::before': {
+                      fontStyle: 'normal',
+                      color: 'text.secondary',
+                      opacity: 0.7,
+                      left: '16px !important',
+                      fontSize: { xs: '0.875rem', sm: '1rem' },
+                    },
+                    '& img': {
+                      maxWidth: '100%',
+                      height: 'auto',
+                      borderRadius: 1,
+                      my: 1,
+                    },
+                    '& p': {
+                      margin: '0.5em 0',
+                    },
+                    '& ul, & ol': {
+                      marginLeft: '1.5em',
+                    },
+                    '& strong': {
+                      fontWeight: 'bold',
+                    },
+                    '& em': {
+                      fontStyle: 'italic',
+                    },
+                  },
                 }}
-                onKeyDown={(e) => {
-                  if (mentionOpen.taskId === 'new' && e.key === 'Enter' && !e.shiftKey) {
-                    const suggestions = getMentionSuggestions(newTask.content, mentionOpen.position);
-                    if (suggestions.length > 0 && !e.ctrlKey) {
-                      e.preventDefault();
-                      const mentionText = suggestions[0].isGroup ? suggestions[0].role : suggestions[0].username;
-                      const newContent = insertMention(newTask.content, mentionOpen.position, mentionText);
-                      setNewTask((prev) => ({ ...prev, content: newContent }));
-                      setMentionOpen({ taskId: null, position: null });
-                    }
-                  }
-                }}
-                required
-              />
-              {mentionOpen.taskId === 'new' && (
-                <Paper
-                  sx={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    right: 0,
-                    zIndex: 1000,
-                    mt: 0.5,
-                    maxHeight: 200,
-                    overflow: 'auto',
+              >
+                <ReactQuill
+                  ref={quillRef}
+                  theme="snow"
+                  value={newTask.content || ''}
+                  onChange={(content) => {
+                    setNewTask((prev) => ({ ...prev, content }));
                   }}
-                >
-                  <List dense>
-                    {getMentionSuggestions(newTask.content, mentionOpen.position).map((u) => (
-                      <ListItem
-                        key={u._id || u.username}
-                        button
-                        onClick={() => {
-                          const mentionText = u.isGroup ? u.role : u.username;
-                          const newContent = insertMention(newTask.content, mentionOpen.position, mentionText);
-                          setNewTask((prev) => ({ ...prev, content: newContent }));
-                          setMentionOpen({ taskId: null, position: null });
-                        }}
-                      >
-                        <ListItemAvatar>
-                          <Avatar 
-                            src={u.isGroup ? undefined : u.profileImage} 
-                            sx={{ 
-                              width: 24, 
-                              height: 24,
-                              bgcolor: u.isGroup ? 'secondary.main' : undefined
-                            }}
-                          >
-                            {u.isGroup ? 'G' : (u.fullName?.[0] || u.username?.[0])}
-                          </Avatar>
-                        </ListItemAvatar>
-                        <ListItemText
-                          primary={u.isGroup ? `@${u.role} (Grup)` : (u.fullName || u.username)}
-                          secondary={u.isGroup ? `${u.role} rolündeki herkesi etiketle` : `@${u.username}`}
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
-                </Paper>
-              )}
+                  modules={quillModules}
+                  formats={quillFormats}
+                  placeholder="Görev açıklaması girin... (Kalınlaştırma, resim ekleme gibi özellikleri kullanabilirsiniz)"
+                  style={{ width: '100%', display: 'flex', flexDirection: 'column', minHeight: '280px' }}
+                />
+              </Box>
             </Box>
-            <TextField
-              select
-              label="Öncelik"
-              value={newTask.priority}
-              onChange={(e) => setNewTask((prev) => ({ ...prev, priority: e.target.value }))}
-              SelectProps={{ native: true }}
-              sx={{ minWidth: 160 }}
-            >
-              <option value="critical">Kritik</option>
-              <option value="medium">Orta</option>
-              <option value="normal">Normal</option>
-            </TextField>
-            <Button type="submit" variant="contained" disabled={loading}>
-              {loading ? 'Ekleniyor...' : 'Görev Ekle'}
-            </Button>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
+              <TextField
+                select
+                label="Öncelik"
+                value={newTask.priority}
+                onChange={(e) => setNewTask((prev) => ({ ...prev, priority: e.target.value }))}
+                SelectProps={{ native: true }}
+                sx={{ minWidth: { xs: '100%', md: 160 }, width: { xs: '100%', md: 'auto' } }}
+              >
+                <option value="critical">Kritik</option>
+                <option value="medium">Orta</option>
+                <option value="normal">Normal</option>
+              </TextField>
+              <Button 
+                type="submit" 
+                variant="contained" 
+                disabled={loading || !newTask.content.replace(/<[^>]*>/g, '').trim()} 
+                sx={{ minWidth: { xs: '100%', md: 120 }, width: { xs: '100%', md: 'auto' } }}
+              >
+                {loading ? 'Ekleniyor...' : 'Görev Ekle'}
+              </Button>
+            </Stack>
           </Stack>
         </form>
       </Paper>
@@ -579,26 +837,26 @@ const TasksBoard = () => {
             <CircularProgress />
           </Box>
         )}
-        <Box sx={{ px: 3, pt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 1.5, sm: 2 }, display: 'flex', justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, flexDirection: { xs: 'column', sm: 'row' }, gap: { xs: 1, sm: 0 } }}>
           <Box>
-            <Typography variant="h6" fontWeight="bold">
+            <Typography variant="h6" fontWeight="bold" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
               Görevler
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
               Aktif: {activeTasks.length} • Tamamlanan: {completedTasks.length}
             </Typography>
           </Box>
-          <Tabs value={tab} onChange={(_, val) => setTab(val)}>
-            <Tab label="Aktif Görevler" />
-            <Tab label="Tamamlanan Görevler" />
+          <Tabs value={tab} onChange={(_, val) => setTab(val)} sx={{ mt: { xs: 1, sm: 0 } }}>
+            <Tab label="Aktif Görevler" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' }, minWidth: { xs: 80, sm: 120 }, px: { xs: 1, sm: 2 } }} />
+            <Tab label="Tamamlanan Görevler" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' }, minWidth: { xs: 80, sm: 120 }, px: { xs: 1, sm: 2 } }} />
           </Tabs>
         </Box>
 
-        <Divider sx={{ mt: 1 }} />
+        <Divider sx={{ mt: { xs: 1, sm: 1 } }} />
 
         {/* Search Bar */}
-        <Box sx={{ px: 3, pt: 2, pb: 2, position: 'relative' }}>
-          <Stack direction="row" spacing={2} alignItems="center">
+        <Box sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 1.5, sm: 2 }, pb: { xs: 1.5, sm: 2 }, position: 'relative' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1, sm: 2 }} alignItems="center">
             <Box sx={{ position: 'relative', flex: 1 }}>
               <TextField
                 fullWidth
@@ -694,36 +952,47 @@ const TasksBoard = () => {
                   setSearchQuery('');
                   setSearchMentionOpen(false);
                 }}
+                fullWidth={{ xs: true, sm: false }}
               >
                 Temizle
-              </Button>
+            </Button>
             )}
           </Stack>
         </Box>
 
         <Divider />
 
-        <Box sx={{ p: 3 }}>
+        <Box sx={{ p: { xs: 2, sm: 3 } }}>
               {(tab === 0 ? activeTasks : completedTasks).map((task) => {
                 return (
                 <Paper 
                   key={task._id} 
                   variant="outlined" 
                   sx={{ 
-                    p: 2, 
-                    mb: 2, 
+                    p: { xs: 1.5, sm: 2 }, 
+                    mb: { xs: 1.5, sm: 2 }, 
                     borderColor: 'divider',
+                    borderRadius: 2,
                   }}
                 >
-              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
-                <Box>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                    <Avatar sx={{ width: 32, height: 32 }} src={task.authorImage || undefined}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'flex-start' }} spacing={{ xs: 1, sm: 2 }}>
+                <Box sx={{ flex: 1, width: '100%' }}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0.5, sm: 1 }} alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 1, flexWrap: 'wrap', gap: { xs: 0.5, sm: 1 } }}>
+                    <Avatar 
+                      sx={{ width: { xs: 28, sm: 32 }, height: { xs: 28, sm: 32 } }} 
+                      src={
+                        task.authorImage 
+                          ? (task.authorImage.startsWith('http') || task.authorImage.startsWith('data:'))
+                            ? task.authorImage
+                            : `${axios.defaults.baseURL || window.location.origin}${task.authorImage.startsWith('/') ? '' : '/'}${task.authorImage}`
+                          : undefined
+                      }
+                    >
                       {task.authorName?.[0]?.toUpperCase() || 'U'}
                     </Avatar>
                     <Box>
-                      <Typography fontWeight="bold">{task.authorName || 'Bilinmiyor'}</Typography>
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography fontWeight="bold" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>{task.authorName || 'Bilinmiyor'}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' }, display: 'block' }}>
                         {dayjs(task.createdAt).format('DD.MM.YYYY HH:mm')} ({dayjs(task.createdAt).fromNow()})
                       </Typography>
                     </Box>
@@ -731,28 +1000,80 @@ const TasksBoard = () => {
                       label={priorityLabel[task.priority] || 'Normal'}
                       color={priorityColor[task.priority]}
                       size="small"
-                      sx={{ ml: 1 }}
+                      sx={{ ml: { xs: 0, sm: 1 }, fontSize: { xs: '0.7rem', sm: '0.75rem' }, height: { xs: 20, sm: 24 } }}
                     />
                   </Stack>
-                  <Typography variant="body1" sx={{ mb: 1 }}>
-                    {renderTextWithMentions(task.content)}
-                  </Typography>
+                  <Box 
+                    sx={{ 
+                      mb: 1, 
+                      fontSize: { xs: '0.875rem', sm: '1rem' }, 
+                      wordBreak: 'break-word',
+                      '& img': {
+                        display: 'block !important',
+                        maxWidth: '100% !important',
+                        borderRadius: '8px !important',
+                        margin: '16px auto !important',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s',
+                        clear: 'both',
+                        '&:hover': {
+                          transform: 'scale(1.02)',
+                        },
+                      },
+                      '& p': {
+                        margin: '0.5em 0',
+                        '&:has(img)': {
+                          margin: '16px 0 !important',
+                        },
+                        '& img': {
+                          display: 'block !important',
+                          margin: '16px auto !important',
+                          clear: 'both',
+                        },
+                      },
+                      '& ul, & ol': {
+                        marginLeft: '1.5em',
+                      },
+                      '& strong': {
+                        fontWeight: 'bold',
+                      },
+                      '& em': {
+                        fontStyle: 'italic',
+                      },
+                      '& a': {
+                        color: 'primary.main',
+                        textDecoration: 'none',
+                        '&:hover': {
+                          textDecoration: 'underline',
+                        },
+                      },
+                      '& span[style*="background-color"]': {
+                        cursor: 'pointer',
+                        '&:hover': {
+                          opacity: 0.8,
+                        },
+                      },
+                    }}
+                    dangerouslySetInnerHTML={{ 
+                      __html: task.content || ''
+                    }}
+                  />
                   {task.completed && (
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                      <CheckCircle color="success" fontSize="small" />
-                      <Avatar sx={{ width: 28, height: 28 }} src={task.completedByImage || undefined}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0.5, sm: 1 }} alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 1, flexWrap: 'wrap', gap: { xs: 0.5, sm: 1 } }}>
+                      <CheckCircle color="success" sx={{ fontSize: { xs: 16, sm: 20 } }} />
+                      <Avatar sx={{ width: { xs: 24, sm: 28 }, height: { xs: 24, sm: 28 } }} src={task.completedByImage || undefined}>
                         {task.completedByName?.[0]?.toUpperCase() || 'U'}
                       </Avatar>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
                         {task.completedByName || 'Bilinmiyor'} tarafından {dayjs(task.completedAt).format('DD.MM.YYYY HH:mm')} tarihinde tamamlandı
                       </Typography>
                     </Stack>
                   )}
                 </Box>
-                <Box>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'row', sm: 'column' }, gap: { xs: 1, sm: 1 }, width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'flex-start', sm: 'flex-end' } }}>
                   {task.completed ? (
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Button variant="outlined" size="small" onClick={() => handleUncomplete(task._id)}>
+                    <Stack direction={{ xs: 'row', sm: 'row' }} spacing={{ xs: 0.5, sm: 1 }} alignItems="center" sx={{ flexWrap: 'wrap', gap: { xs: 0.5, sm: 1 } }}>
+                      <Button variant="outlined" size="small" onClick={() => handleUncomplete(task._id)} sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' }, minWidth: { xs: 'auto', sm: 80 } }}>
                         Geri Al
                       </Button>
                       <Tooltip title="Görev detayını yeni sekmede aç">
@@ -767,15 +1088,22 @@ const TasksBoard = () => {
                         </IconButton>
                       </Tooltip>
                       {(user?.role === 'admin' || task.author === user?.id || task.author?._id === user?.id) && (
+                        <>
+                          <Tooltip title="Görevi Düzenle">
+                            <IconButton color="primary" size="small" onClick={() => handleEditClick(task)}>
+                              <Edit fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         <Tooltip title="Görevi Sil">
                           <IconButton color="error" size="small" onClick={() => askDeleteTask(task._id)}>
                             <Delete fontSize="small" />
                           </IconButton>
                         </Tooltip>
+                        </>
                       )}
                     </Stack>
                   ) : (
-                    <Stack direction="row" spacing={1}>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ gap: { xs: 0.5, sm: 1 } }}>
                       <Button variant="contained" size="small" onClick={() => handleComplete(task._id)}>
                         Görevi Bitir
                       </Button>
@@ -791,11 +1119,18 @@ const TasksBoard = () => {
                         </IconButton>
                       </Tooltip>
                       {(user?.role === 'admin' || task.author === user?.id || task.author?._id === user?.id) && (
-                        <Tooltip title="Görevi Sil">
-                          <IconButton color="error" size="small" onClick={() => askDeleteTask(task._id)}>
-                            <Delete fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        <>
+                          <Tooltip title="Görevi Düzenle">
+                            <IconButton color="primary" size="small" onClick={() => handleEditClick(task)}>
+                              <Edit fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Görevi Sil">
+                            <IconButton color="error" size="small" onClick={() => askDeleteTask(task._id)}>
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </>
                       )}
                     </Stack>
                   )}
@@ -821,7 +1156,16 @@ const TasksBoard = () => {
                     }}
                   >
                     <Stack direction="row" spacing={1} alignItems="center">
-                      <Avatar sx={{ width: 28, height: 28 }} src={comment.authorImage || undefined}>
+                      <Avatar 
+                        sx={{ width: 28, height: 28 }} 
+                        src={
+                          comment.authorImage 
+                            ? (comment.authorImage.startsWith('http') || comment.authorImage.startsWith('data:'))
+                              ? comment.authorImage
+                              : `${axios.defaults.baseURL || window.location.origin}${comment.authorImage.startsWith('/') ? '' : '/'}${comment.authorImage}`
+                            : undefined
+                        }
+                      >
                         {comment.authorName?.[0]?.toUpperCase() || 'U'}
                       </Avatar>
                       <Box>
@@ -969,14 +1313,22 @@ const TasksBoard = () => {
         <DialogTitle>Onay</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            {confirm.type === 'task'
+            {confirm.type === 'complete'
+              ? 'Görevi bitirmek istediğinize emin misiniz?'
+              : confirm.type === 'task'
               ? 'Görevi silmek istediğinize emin misiniz?'
               : 'Yorumu silmek istediğinize emin misiniz?'}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirm({ open: false, type: '', taskId: null, commentId: null })}>Vazgeç</Button>
-          <Button color="error" onClick={handleConfirm}>Sil</Button>
+          <Button 
+            color={confirm.type === 'complete' ? 'primary' : 'error'} 
+            variant="contained"
+            onClick={handleConfirm}
+          >
+            {confirm.type === 'complete' ? 'Evet, Bitir' : 'Sil'}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -1065,6 +1417,244 @@ const TasksBoard = () => {
         <DialogActions>
           <Button onClick={() => setMentionDialog({ open: false, mention: '', mentionedUsers: [] })}>
             Kapat
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Task Dialog */}
+      <Dialog 
+        open={editDialogOpen} 
+        onClose={() => !editing && setEditDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Görevi Düzenle</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Görev açıklaması
+              </Typography>
+              <Box sx={{ 
+                '& .ql-container': {
+                  minHeight: '200px',
+                  bgcolor: 'background.paper',
+                },
+                '& .ql-toolbar': {
+                  borderRadius: '4px 4px 0 0',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  bgcolor: 'background.paper',
+                  '& .ql-picker-label': {
+                    color: 'text.primary',
+                  },
+                  '& .ql-stroke': {
+                    stroke: 'text.primary',
+                  },
+                  '& .ql-fill': {
+                    fill: 'text.primary',
+                  },
+                },
+                '& .ql-container.ql-snow': {
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: '0 0 4px 4px',
+                  bgcolor: 'background.paper',
+                },
+                '& .ql-editor': {
+                  minHeight: '200px',
+                  color: 'text.primary',
+                  '&.ql-blank::before': {
+                    fontStyle: 'normal',
+                    color: 'text.secondary',
+                    opacity: 0.6,
+                  },
+                  '& img': {
+                    maxWidth: '100%',
+                    height: 'auto',
+                    borderRadius: 1,
+                    my: 1,
+                  },
+                },
+              }}>
+                <ReactQuill
+                  ref={quillEditRef}
+                  theme="snow"
+                  value={editContent}
+                  onChange={setEditContent}
+                  modules={quillModules}
+                  formats={quillFormats}
+                  placeholder="Görev açıklaması girin..."
+                />
+              </Box>
+            </Box>
+            <FormControl fullWidth>
+              <InputLabel>Öncelik</InputLabel>
+              <Select
+                value={editPriority}
+                onChange={(e) => setEditPriority(e.target.value)}
+                label="Öncelik"
+              >
+                <MenuItem value="critical">Kritik</MenuItem>
+                <MenuItem value="medium">Orta</MenuItem>
+                <MenuItem value="normal">Normal</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialogOpen(false)} disabled={editing}>
+            İptal
+          </Button>
+          <Button 
+            onClick={handleEditSave} 
+            variant="contained" 
+            disabled={editing || !editContent.replace(/<[^>]*>/g, '').trim()}
+          >
+            {editing ? 'Kaydediliyor...' : 'Kaydet'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Image Size Dialog */}
+      <Dialog 
+        open={imageDialog.open} 
+        onClose={() => {
+          setImageDialog({ open: false, url: '', width: 400, height: 300 });
+          setPendingImageIndex(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Resim Boyutunu Ayarla</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2, minHeight: '300px', position: 'relative' }}>
+              <ResizableBox
+                width={imageDialog.width}
+                height={imageDialog.height}
+                minConstraints={[100, 100]}
+                maxConstraints={[800, 600]}
+                onResize={(e, data) => {
+                  setImageDialog(prev => ({
+                    ...prev,
+                    width: data.size.width,
+                    height: data.size.height
+                  }));
+                }}
+                resizeHandles={['se']}
+                style={{
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: '8px',
+                }}
+              >
+                <img 
+                  src={imageDialog.url} 
+                  alt="Preview" 
+                  style={{ 
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain',
+                    borderRadius: '8px',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    display: 'block'
+                  }} 
+                />
+              </ResizableBox>
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
+              Köşeden tutup çekerek boyutu ayarlayın
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setImageDialog({ open: false, url: '', width: 400, height: 300 });
+            setPendingImageIndex(null);
+          }}>
+            İptal
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={() => {
+              const quill = (quillRef.current || quillEditRef.current)?.getEditor();
+              if (quill && pendingImageIndex !== null) {
+                try {
+                  // Get current selection and insert newline before if needed
+                  const beforeText = quill.getText(0, pendingImageIndex);
+                  let insertIndex = pendingImageIndex;
+                  if (beforeText && beforeText.trim() && !beforeText.endsWith('\n')) {
+                    quill.insertText(pendingImageIndex, '\n', 'user');
+                    insertIndex = pendingImageIndex + 1;
+                  }
+                  
+                  // Set selection
+                  quill.setSelection(insertIndex, 'user');
+                  
+                  // Insert image using insertEmbed (Quill's standard method)
+                  quill.insertEmbed(insertIndex, 'image', imageDialog.url, 'user');
+                  
+                  // Add newline after image
+                  quill.insertText(insertIndex + 1, '\n', 'user');
+                  
+                  // Update image style and sync content after a short delay
+                  setTimeout(() => {
+                    const imgs = quill.root.querySelectorAll('img');
+                    const img = Array.from(imgs).find(img => img.src === imageDialog.url);
+                    
+                    if (img) {
+                      // Apply inline styles directly
+                      const widthPercent = Math.round((imageDialog.width / 800) * 100);
+                      img.style.cssText = `display: block !important; width: ${widthPercent}% !important; height: ${imageDialog.height}px !important; margin: 16px auto !important; border-radius: 8px !important; max-width: 100% !important;`;
+                      
+                      // Ensure image is in a paragraph tag
+                      let parent = img.parentNode;
+                      if (!parent || parent.tagName !== 'P') {
+                        const p = document.createElement('p');
+                        if (parent && parent.parentNode) {
+                          parent.parentNode.insertBefore(p, parent);
+                          parent.removeChild(img);
+                          p.appendChild(img);
+                          if (!parent.textContent.trim() && !parent.querySelector('br')) {
+                            parent.remove();
+                          }
+                        } else {
+                          quill.root.appendChild(p);
+                          if (parent) parent.removeChild(img);
+                          p.appendChild(img);
+                        }
+                      }
+                      
+                      // Trigger Quill update to sync internal state
+                      quill.update('user');
+                      
+                      // Get the updated HTML content and update React state immediately
+                      // This ensures the image is saved in the task content
+                      const updatedHTML = quill.root.innerHTML;
+                      
+                      if (quillRef.current) {
+                        setNewTask((prev) => ({ ...prev, content: updatedHTML }));
+                      } else if (quillEditRef.current) {
+                        setEditContent(updatedHTML);
+                      }
+                      
+                      // Set cursor after image
+                      const newLength = quill.getLength();
+                      quill.setSelection(Math.min(insertIndex + 2, newLength), 'user');
+                    }
+                  }, 200);
+                } catch (error) {
+                  console.error('Error inserting image:', error);
+                  setMessage({ type: 'error', text: 'Resim eklenirken bir hata oluştu' });
+                }
+              }
+              setImageDialog({ open: false, url: '', width: 400, height: 300 });
+              setPendingImageIndex(null);
+            }}
+          >
+            Ekle
           </Button>
         </DialogActions>
       </Dialog>

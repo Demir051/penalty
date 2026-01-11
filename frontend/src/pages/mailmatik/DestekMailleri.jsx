@@ -11,6 +11,8 @@ import {
   Divider,
   Tabs,
   Tab,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { Support, ContentCopy, CheckCircle } from '@mui/icons-material';
 import axios from 'axios';
@@ -21,6 +23,8 @@ const DestekMailleri = () => {
   const [copied, setCopied] = useState(false);
   const [formData, setFormData] = useState({});
   const { user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const templates = [
     {
@@ -45,9 +49,7 @@ const DestekMailleri = () => {
         { key: 'saatFarki', label: 'Saat farkı', required: true },
         { key: 'dakikaFarki', label: 'Dakika farkı', required: true },
       ],
-      generate: (data) => `SAAT FARKI MAİLİ:
- 
-Merhaba,
+      generate: (data) => `Merhaba,
  
 Ceza no: ${data.cezaNo || ''}
 Ceza tarihi: ${data.cezaTarihi || ''}
@@ -96,10 +98,11 @@ Bilginize,`
         { key: 'aracPlaka', label: 'Sisteme kayıtlı araç plaka', required: true },
         { key: 'yolculukSayisi', label: 'Sürücü yolculuk sayısı', required: true },
         { key: 'surucuRating', label: 'Sürücü rating', required: true },
+        { key: 'cezaTutari', label: 'Ceza tutarı (TL)', required: true },
+        { key: 'ilkCezaTarihi', label: 'İlk ceza tarihi', required: true },
+        { key: 'aracBilgisi', label: 'Sistemde kayıtlı olan araç', required: true },
       ],
-      generate: (data) => `2. CEZA DESTEK MAİLİ
- 
-Merhaba,
+      generate: (data) => `Merhaba,
  
 Ceza no: ${data.cezaNo || ''}
 Ceza tarihi: ${data.cezaTarihi || ''}
@@ -117,7 +120,7 @@ Sisteme kayıtlı araç plaka: ${data.aracPlaka || ''}
 Sürücü yolculuk sayısı: ${data.yolculukSayisi || ''}
 Sürücü rating: ${data.surucuRating || ''}
  
-KONU: Yeni süreç cezası. Gerekli kontroller sağlandığında makbuzdaki ceza tutarı 92784 TL'dir. İlk cezası 17.03.2024 tarihinde uygulanmış. Sürücünün cezası ödenmiş. İkinci cezasında makbuzdaki bilgiler ile sistemdeki bilgiler uyuşmaktadır.  
+KONU: Yeni süreç cezası. Gerekli kontroller sağlandığında makbuzdaki ceza tutarı ${data.cezaTutari || '___CEZA_TUTARI___'}TL'dir. İlk cezası ${data.ilkCezaTarihi || '___ILK_CEZA_TARIHI___'} tarihinde uygulanmış. Sürücünün cezası ödenmiş. İkinci cezasında makbuzdaki bilgiler ile sistemdeki bilgiler uyuşmaktadır. Sistemde kayıtlı olan araç(${data.aracBilgisi || '___ARAC_BILGISI___'}).
  
 Ceza ödemesinde ne kadar destek sağlanacağı konusunda desteğinizi arz ederiz.
  
@@ -143,9 +146,7 @@ Teşekkürler,`
         { key: 'surucuBeyani', label: 'Sürücü beyanı', required: true },
         { key: 'yolcuBeyaniKod', label: 'Yolcu beyanı', required: true },
       ],
-      generate: (data) => `KOD ALINMADAN (EŞLEŞMEDE) YOLCULUK DESTEK MAİLİ;
- 
-Merhaba,
+      generate: (data) => `Merhaba,
  
 Ceza no: ${data.cezaNo || ''}
 Ceza tarihi: ${data.cezaTarihi || ''}
@@ -200,9 +201,7 @@ Bilginize,`
         { key: 'sistemArac', label: 'Sistem araç', required: true },
         { key: 'cezaArac', label: 'Ceza araç', required: true },
       ],
-      generate: (data) => `PLAKA FARKLI DESTEK MAİLİ;
- 
-Merhaba,
+      generate: (data) => `Merhaba,
  
 Ceza no: ${data.cezaNo || ''}
 Ceza tarihi: ${data.cezaTarihi || ''}
@@ -220,7 +219,7 @@ Sisteme kayıtlı araç plaka: ${data.sistemPlaka || ''}
 Sürücü yolculuk sayısı: ${data.yolculukSayisi || ''}
 Sürücü rating: ${data.surucuRating || ''}
 
-Konu: Sistemde kayıtlı plaka(${data.sistemPlaka || ''}) ile makbuzdaki plaka(${data.makbuzPlaka || ''}) farklı. Sistemde kayıtlı olan araç(${data.sistemArac || ''}) ile cezai işlem uygulanan araç(${data.cezaArac || ''}) model yılı uyuşmuyor. Cezai işlem uygulanan plaka sisteme kayıtlı, reddedilmiş veya başvuru sürecinde değil. Aylık ortalama yolculuk sayısı olarak hesaplandığında 100 yolculuğu geçiyor. 
+Konu: Sistemde kayıtlı plaka(${data.sistemPlaka || '___SISTEM_PLAKA___'}) ile makbuzdaki plaka(${data.makbuzPlaka || '___MAKBUZ_PLAKA___'}) farklı. Sistemde kayıtlı olan araç(${data.sistemArac || '___SISTEM_ARAC___'}) ile cezai işlem uygulanan araç(${data.cezaArac || '___CEZA_ARAC___'}) model yılı uyuşmuyor. Cezai işlem uygulanan plaka sisteme kayıtlı, reddedilmiş veya başvuru sürecinde değil. Aylık ortalama yolculuk sayısı olarak hesaplandığında 100 yolculuğu geçiyor. 
  
 Hakkında daha önce görüşme notu-uyarı bulunmuyor.  
  
@@ -267,50 +266,50 @@ Teşekkürler,`
   const renderMailContent = () => {
     const content = currentTemplate.generate(currentData);
     const lines = content.split('\n');
+    const processedLines = new Set();
     
     return lines.map((line, lineIdx) => {
-      // Her satırı kontrol et ve field'ları bul
-      const field = currentTemplate.fields.find(f => {
-        const fieldPattern = new RegExp(`${f.label}:\\s*`, 'i');
-        return fieldPattern.test(line);
+      if (processedLines.has(lineIdx)) return null;
+      if (!line.trim()) {
+        return (
+          <Typography key={lineIdx} variant="body2" sx={{ mb: 0.5, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+            {'\u00A0'}
+          </Typography>
+        );
+      }
+      
+      // 1. Label pattern kontrolü (Ceza no:, Plaka: vb.)
+      const labelField = currentTemplate.fields.find(f => {
+        const pattern = new RegExp(`${f.label}:\\s*`, 'i');
+        return pattern.test(line);
       });
 
-      if (field) {
-        const parts = line.split(new RegExp(`(${field.label}:\\s*)`, 'i'));
+      if (labelField) {
+        processedLines.add(lineIdx);
+        const parts = line.split(new RegExp(`(${labelField.label}:\\s*)`, 'i'));
         if (parts.length >= 3) {
-          const labelPart = parts[1];
-          const valuePart = parts.slice(2).join('');
-          const isEmpty = !currentData[field.key] || currentData[field.key].trim() === '';
-          
+          const isEmpty = !currentData[labelField.key] || currentData[labelField.key].trim() === '';
           return (
-            <Box key={lineIdx} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography component="span" variant="body2" sx={{ minWidth: 'fit-content' }}>
-                {labelPart}
+            <Box key={lineIdx} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, flexWrap: 'wrap' }}>
+              <Typography component="span" variant="body2" sx={{ minWidth: 'fit-content', fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                {parts[1]}
               </Typography>
               <TextField
                 size="small"
-                value={currentData[field.key] || ''}
-                onChange={(e) => handleInputChange(field.key, e.target.value)}
-                placeholder={field.label}
+                value={currentData[labelField.key] || ''}
+                onChange={(e) => handleInputChange(labelField.key, e.target.value)}
+                placeholder={labelField.label}
                 sx={{
                   flex: 1,
-                  minWidth: 180,
+                  minWidth: { xs: 150, sm: 180 },
                   '& .MuiOutlinedInput-root': {
                     height: '28px',
-                    fontSize: '0.8rem',
+                    fontSize: { xs: '0.75rem', sm: '0.8rem' },
                   },
                 }}
               />
-              {field.required && isEmpty && (
-                <Typography 
-                  variant="caption" 
-                  sx={{ 
-                    fontSize: '0.7rem',
-                    color: (theme) => theme.palette.mode === 'dark' ? '#ff9800' : '#d97706',
-                    fontStyle: 'italic',
-                    ml: 0.5,
-                  }}
-                >
+              {labelField.required && isEmpty && (
+                <Typography variant="caption" sx={{ fontSize: '0.7rem', color: (theme) => theme.palette.mode === 'dark' ? '#ff9800' : '#d97706', fontStyle: 'italic', ml: 0.5 }}>
                   (boş)
                 </Typography>
               )}
@@ -319,54 +318,49 @@ Teşekkürler,`
         }
       }
       
-      // Özel durumlar: Yolcu beyanı, Sürücü beyanı gibi tırnak içindeki alanlar
-      const specialFields = [
+      // 2. Tırnak içindeki alanlar (Yolcu beyanı, Sürücü beyanı)
+      const quoteFields = [
         { key: 'yolcuBeyani', pattern: /Yolcu beyanı alındığında; "([^"]*)"/i },
         { key: 'surucuBeyani', pattern: /Sürücü beyanında; "([^"]*)"/i },
         { key: 'yolcuBeyaniKod', pattern: /Yolcu beyanında; "([^"]*)"/i },
       ];
-
-      for (const specialField of specialFields) {
-        const match = line.match(specialField.pattern);
+      
+      for (const quoteField of quoteFields) {
+        const match = line.match(quoteField.pattern);
         if (match) {
-          const field = currentTemplate.fields.find(f => f.key === specialField.key);
-          if (field) {
+          const field = currentTemplate.fields.find(f => f.key === quoteField.key);
+          if (field && !processedLines.has(lineIdx)) {
+            processedLines.add(lineIdx);
             const isEmpty = !currentData[field.key] || currentData[field.key].trim() === '';
             const beforeQuote = line.substring(0, line.indexOf('"'));
             const afterQuote = line.substring(line.lastIndexOf('"') + 1);
             
             return (
-              <Box key={lineIdx} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Typography component="span" variant="body2">
+              <Box key={lineIdx} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, flexWrap: 'wrap' }}>
+                <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
                   {beforeQuote}"
                 </Typography>
                 <TextField
                   size="small"
+                  multiline
+                  rows={1}
                   value={currentData[field.key] || ''}
                   onChange={(e) => handleInputChange(field.key, e.target.value)}
                   placeholder={field.label}
                   sx={{
                     flex: 1,
-                    minWidth: 180,
+                    minWidth: { xs: 150, sm: 180 },
                     '& .MuiOutlinedInput-root': {
-                      height: '28px',
-                      fontSize: '0.8rem',
+                      fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                      minHeight: '28px',
                     },
                   }}
                 />
-                <Typography component="span" variant="body2">
+                <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
                   "{afterQuote}
                 </Typography>
                 {field.required && isEmpty && (
-                  <Typography 
-                    variant="caption" 
-                    sx={{ 
-                      fontSize: '0.7rem',
-                      color: '#8B4513',
-                      fontStyle: 'italic',
-                      ml: 0.5,
-                    }}
-                  >
+                  <Typography variant="caption" sx={{ fontSize: '0.7rem', color: (theme) => theme.palette.mode === 'dark' ? '#ff9800' : '#d97706', fontStyle: 'italic', ml: 0.5 }}>
                     (boş)
                   </Typography>
                 )}
@@ -376,40 +370,196 @@ Teşekkürler,`
         }
       }
       
+      // 3. Konu kısımlarındaki değişkenler - Placeholder pattern
+      for (const field of currentTemplate.fields) {
+        const fieldValue = currentData[field.key] || '';
+        const isEmpty = !fieldValue || fieldValue.trim() === '';
+        
+        // Placeholder pattern: ___FIELD_KEY___
+        const placeholderPattern = new RegExp(`___${field.key.toUpperCase()}___`, 'g');
+        if (line.match(placeholderPattern) && !processedLines.has(lineIdx)) {
+          processedLines.add(lineIdx);
+          const parts = line.split(placeholderPattern);
+          return (
+            <Box key={lineIdx} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, flexWrap: 'wrap' }}>
+              <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                {parts[0]}
+              </Typography>
+              <TextField
+                size="small"
+                value={fieldValue}
+                onChange={(e) => handleInputChange(field.key, e.target.value)}
+                placeholder={field.label}
+                sx={{
+                  minWidth: { xs: 100, sm: 120 },
+                  flex: field.key.includes('Tutari') || field.key.includes('Tarihi') ? '0 0 auto' : 1,
+                  '& .MuiOutlinedInput-root': {
+                    height: '28px',
+                    fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                  },
+                }}
+              />
+              <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                {parts.slice(1).join('')}
+              </Typography>
+              {field.required && isEmpty && (
+                <Typography variant="caption" sx={{ fontSize: '0.7rem', color: (theme) => theme.palette.mode === 'dark' ? '#ff9800' : '#d97706', fontStyle: 'italic', ml: 0.5 }}>
+                  (boş)
+                </Typography>
+              )}
+            </Box>
+          );
+        }
+        
+        // Parantez içindeki değişkenler: (x)
+        if (fieldValue && line.includes(`(${fieldValue})`) && !processedLines.has(lineIdx)) {
+          processedLines.add(lineIdx);
+          const beforeMatch = line.substring(0, line.indexOf(`(${fieldValue})`));
+          const afterMatch = line.substring(line.indexOf(`(${fieldValue})`) + `(${fieldValue})`.length);
+          
+          return (
+            <Box key={lineIdx} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, flexWrap: 'wrap' }}>
+              <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                {beforeMatch}(
+              </Typography>
+              <TextField
+                size="small"
+                value={fieldValue}
+                onChange={(e) => handleInputChange(field.key, e.target.value)}
+                placeholder={field.label}
+                sx={{
+                  minWidth: { xs: 100, sm: 120 },
+                  '& .MuiOutlinedInput-root': {
+                    height: '28px',
+                    fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                  },
+                }}
+              />
+              <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                ){afterMatch}
+              </Typography>
+              {field.required && isEmpty && (
+                <Typography variant="caption" sx={{ fontSize: '0.7rem', color: (theme) => theme.palette.mode === 'dark' ? '#ff9800' : '#d97706', fontStyle: 'italic', ml: 0.5 }}>
+                  (boş)
+                </Typography>
+              )}
+            </Box>
+          );
+        }
+        
+        // TL içeren kısımlar: "xxxTL'dir"
+        if (field.key === 'cezaTutari' && line.includes('TL') && !processedLines.has(lineIdx)) {
+          if (fieldValue && line.includes(`${fieldValue}TL`)) {
+            processedLines.add(lineIdx);
+            const beforeTL = line.substring(0, line.indexOf(`${fieldValue}TL`));
+            const afterTL = line.substring(line.indexOf(`${fieldValue}TL`) + `${fieldValue}TL`.length);
+            
+            return (
+              <Box key={lineIdx} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, flexWrap: 'wrap' }}>
+                <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                  {beforeTL}
+                </Typography>
+                <TextField
+                  size="small"
+                  value={fieldValue}
+                  onChange={(e) => handleInputChange(field.key, e.target.value)}
+                  placeholder={field.label}
+                  sx={{
+                    minWidth: { xs: 100, sm: 120 },
+                    '& .MuiOutlinedInput-root': {
+                      height: '28px',
+                      fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                    },
+                  }}
+                />
+                <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                  {afterTL}
+                </Typography>
+                {field.required && isEmpty && (
+                  <Typography variant="caption" sx={{ fontSize: '0.7rem', color: (theme) => theme.palette.mode === 'dark' ? '#ff9800' : '#d97706', fontStyle: 'italic', ml: 0.5 }}>
+                    (boş)
+                  </Typography>
+                )}
+              </Box>
+            );
+          }
+        }
+        
+        // Tarih içeren kısımlar: "xx.xx.xxxx tarihinde"
+        if (field.key === 'ilkCezaTarihi' && line.includes('tarihinde') && !processedLines.has(lineIdx)) {
+          if (fieldValue && line.includes(fieldValue)) {
+            processedLines.add(lineIdx);
+            const beforeDate = line.substring(0, line.indexOf(fieldValue));
+            const afterDate = line.substring(line.indexOf(fieldValue) + fieldValue.length);
+            
+            return (
+              <Box key={lineIdx} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, flexWrap: 'wrap' }}>
+                <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                  {beforeDate}
+                </Typography>
+                <TextField
+                  size="small"
+                  value={fieldValue}
+                  onChange={(e) => handleInputChange(field.key, e.target.value)}
+                  placeholder={field.label}
+                  sx={{
+                    minWidth: { xs: 100, sm: 120 },
+                    '& .MuiOutlinedInput-root': {
+                      height: '28px',
+                      fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                    },
+                  }}
+                />
+                <Typography component="span" variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                  {afterDate}
+                </Typography>
+                {field.required && isEmpty && (
+                  <Typography variant="caption" sx={{ fontSize: '0.7rem', color: (theme) => theme.palette.mode === 'dark' ? '#ff9800' : '#d97706', fontStyle: 'italic', ml: 0.5 }}>
+                    (boş)
+                  </Typography>
+                )}
+              </Box>
+            );
+          }
+        }
+      }
+      
+      // Normal metin satırı
       return (
-        <Typography key={lineIdx} variant="body2" sx={{ mb: line.trim() === '' ? 0.5 : 0 }}>
-          {line || '\u00A0'}
+        <Typography key={lineIdx} variant="body2" sx={{ mb: 0.5, fontSize: { xs: '0.75rem', sm: '0.875rem' }, wordBreak: 'break-word' }}>
+          {line}
         </Typography>
       );
-    });
+    }).filter(Boolean);
   };
 
   return (
-    <Container maxWidth="lg">
+    <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 2, md: 3 }, py: { xs: 2, sm: 3 } }}>
       <Paper 
         elevation={0} 
         sx={{ 
-          p: 4, 
+          p: { xs: 2, sm: 3, md: 4 }, 
           borderRadius: '16px',
           border: '1px solid',
           borderColor: 'divider',
           bgcolor: 'background.paper',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-          <Support sx={{ fontSize: 32, color: 'primary.main' }} />
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 }, mb: { xs: 2, sm: 3 }, flexWrap: 'wrap' }}>
+          <Support sx={{ fontSize: { xs: 24, sm: 32 }, color: 'primary.main' }} />
+          <Typography variant="h5" sx={{ fontWeight: 600, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
             Destek Mailleri
           </Typography>
         </Box>
 
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: { xs: 2, sm: 3 }, overflowX: 'auto' }}>
           <Tabs
             value={selectedTemplate}
             onChange={(e, newValue) => setSelectedTemplate(newValue)}
             variant="scrollable"
             scrollButtons="auto"
             sx={{ 
+              minHeight: { xs: 40, sm: 48 },
               '& .MuiTabs-scrollButtons': {
                 '&.Mui-disabled': {
                   opacity: 0.3,
@@ -423,7 +573,7 @@ Teşekkürler,`
                 label={template.name} 
                 sx={{ 
                   textTransform: 'none',
-                  fontSize: '0.875rem',
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
                   minWidth: { xs: 80, sm: 120 },
                   px: { xs: 1, sm: 2 },
                   whiteSpace: 'nowrap',
@@ -433,43 +583,46 @@ Teşekkürler,`
           </Tabs>
         </Box>
 
-        <Divider sx={{ mb: 3 }} />
+        <Divider sx={{ mb: { xs: 2, sm: 3 } }} />
 
-        <Stack spacing={3}>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+        <Stack spacing={{ xs: 2, sm: 3 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
             {currentTemplate.name}
           </Typography>
 
           <Paper 
             variant="outlined" 
             sx={{ 
-              p: 3, 
+              p: { xs: 2, sm: 3 }, 
               bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50', 
               borderRadius: '12px',
               border: '1px solid',
               borderColor: 'divider',
+              overflowX: 'auto',
             }}
           >
-            <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'text.secondary' }}>
+            <Typography variant="subtitle2" sx={{ mb: { xs: 1.5, sm: 2 }, fontWeight: 600, color: 'text.secondary', fontSize: { xs: '0.875rem', sm: '1rem' } }}>
               Mail İçeriği:
             </Typography>
-            <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: 1.8 }}>
+            <Box sx={{ fontFamily: 'monospace', fontSize: { xs: '0.75rem', sm: '0.875rem' }, lineHeight: 1.8, wordBreak: 'break-word' }}>
               {renderMailContent()}
             </Box>
           </Paper>
 
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+          <Box sx={{ display: 'flex', gap: { xs: 1, sm: 2 }, justifyContent: { xs: 'center', sm: 'flex-end' }, flexWrap: 'wrap' }}>
             <Button
               variant="contained"
               startIcon={copied ? <CheckCircle /> : <ContentCopy />}
               onClick={handleCopy}
+              fullWidth={isMobile}
+              size={isMobile ? 'medium' : 'large'}
             >
               {copied ? 'Kopyalandı!' : 'Kopyala'}
             </Button>
           </Box>
 
           {copied && (
-            <Alert severity="success">Mail içeriği panoya kopyalandı!</Alert>
+            <Alert severity="success" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>Mail içeriği panoya kopyalandı!</Alert>
           )}
         </Stack>
       </Paper>

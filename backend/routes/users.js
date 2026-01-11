@@ -1,9 +1,61 @@
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
 import User from '../models/User.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, validateObjectId } from '../middleware/auth.js';
 import { logAction } from '../utils/activityLogger.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const router = express.Router();
+
+// Create uploads/profile-images directory if it doesn't exist
+const profileImagesDir = path.join(__dirname, '../uploads/profile-images');
+if (!fs.existsSync(profileImagesDir)) {
+  fs.mkdirSync(profileImagesDir, { recursive: true });
+}
+
+// Configure multer for profile image uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, profileImagesDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    // Sanitize file extension to prevent path traversal
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    // Only allow image extensions
+    const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const finalExt = allowedExts.includes(ext) ? ext : '.jpg';
+    // Ensure userId is valid ObjectId string (no path traversal)
+    // req.user is set by authenticateToken middleware, so it's safe to use
+    const userId = req.user && req.user.userId 
+      ? String(req.user.userId).replace(/[^a-f0-9]/g, '').slice(0, 24)
+      : 'unknown';
+    cb(null, `profile-${userId}-${uniqueSuffix}${finalExt}`);
+  },
+});
+
+const fileFilter = (req, file, cb) => {
+  // Accept only image files
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed'), false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: fileFilter,
+});
 
 // Update last active time
 router.post('/me/ping', authenticateToken, async (req, res) => {
@@ -32,6 +84,80 @@ router.get('/me', authenticateToken, async (req, res) => {
   }
 });
 
+// Upload profile image
+router.post('/me/upload-profile-image', authenticateToken, (req, res, next) => {
+  upload.single('profileImage')(req, res, (err) => {
+    if (err) {
+      if (err.message === 'Only image files are allowed') {
+        return res.status(400).json({ message: 'Sadece resim dosyaları yüklenebilir' });
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'Dosya boyutu 5MB\'dan küçük olmalıdır' });
+      }
+      return res.status(400).json({ message: err.message || 'Dosya yükleme hatası' });
+    }
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Resim dosyası seçilmedi' });
+    }
+
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      // Delete uploaded file if user not found
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Delete old profile image if exists
+    if (user.profileImage && user.profileImage.includes('/uploads/profile-images/')) {
+      const oldImagePath = path.join(__dirname, '..', user.profileImage);
+      if (fs.existsSync(oldImagePath)) {
+        try {
+          fs.unlinkSync(oldImagePath);
+        } catch (err) {
+          console.error('Error deleting old profile image:', err);
+        }
+      }
+    }
+
+    // Save new profile image URL
+    const imageUrl = `/uploads/profile-images/${req.file.filename}`;
+    user.profileImage = imageUrl;
+    user.lastActiveAt = new Date();
+    await user.save();
+
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    await logAction({
+      actorId: user._id,
+      actorName: user.fullName || user.username,
+      action: 'user_profile_image_upload',
+      targetType: 'user',
+      targetId: user._id.toString(),
+      message: 'Profil resmi güncellendi',
+    });
+
+    res.json({ profileImage: imageUrl, user: userResponse });
+  } catch (error) {
+    console.error('Error uploading profile image:', error);
+    // Delete uploaded file on error
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (err) {
+        console.error('Error deleting uploaded file on error:', err);
+      }
+    }
+    res.status(500).json({ message: 'Profil resmi yüklenirken bir hata oluştu' });
+  }
+});
+
 // Update profile (profile image or full name)
 router.patch('/me/profile', authenticateToken, async (req, res) => {
   try {
@@ -40,11 +166,34 @@ router.patch('/me/profile', authenticateToken, async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+    
+    // Sanitize inputs
     if (profileImage !== undefined) {
-      user.profileImage = profileImage || null;
+      if (profileImage && typeof profileImage === 'string') {
+        // Basic URL validation and sanitization
+        const sanitizedUrl = profileImage.trim().slice(0, 500); // Max length
+        // Only allow http/https URLs or relative paths starting with /uploads/
+        if (sanitizedUrl.startsWith('http://') || sanitizedUrl.startsWith('https://') || sanitizedUrl.startsWith('/uploads/') || sanitizedUrl.startsWith('data:image/')) {
+          user.profileImage = sanitizedUrl;
+        } else {
+          return res.status(400).json({ message: 'Invalid profile image URL format' });
+        }
+      } else {
+        user.profileImage = null;
+      }
     }
-    if (fullName) {
-      user.fullName = fullName;
+    if (fullName !== undefined) {
+      if (fullName && typeof fullName === 'string') {
+        // Sanitize full name (remove special characters, limit length)
+        const sanitized = fullName.trim().slice(0, 100).replace(/[<>]/g, '');
+        if (sanitized.length > 0) {
+          user.fullName = sanitized;
+        } else {
+          return res.status(400).json({ message: 'Full name cannot be empty' });
+        }
+      } else {
+        return res.status(400).json({ message: 'Full name must be a string' });
+      }
     }
     user.lastActiveAt = new Date();
     await user.save();
@@ -131,26 +280,50 @@ router.get('/', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const admin = await User.findById(req.user.userId);
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin user not found' });
+    }
+    
     if (admin.role !== 'admin') {
       return res.status(403).json({ message: 'Admin access required' });
     }
 
     const { username, email, password, fullName, role } = req.body;
 
+    // Input validation and sanitization
     if (!username || !email || !password || !fullName) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if (password.length < 6) {
+    // Sanitize and validate inputs
+    const sanitizedUsername = String(username).trim().slice(0, 50).replace(/[<>]/g, '');
+    const sanitizedEmail = String(email).trim().toLowerCase().slice(0, 100);
+    const sanitizedFullName = String(fullName).trim().slice(0, 100).replace(/[<>]/g, '');
+    
+    if (!sanitizedUsername || sanitizedUsername.length < 3) {
+      return res.status(400).json({ message: 'Username must be at least 3 characters' });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(sanitizedEmail)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    if (!sanitizedFullName || sanitizedFullName.length < 2) {
+      return res.status(400).json({ message: 'Full name must be at least 2 characters' });
+    }
+
+    if (typeof password !== 'string' || password.length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
 
-    if (!['admin', 'ceza', 'uye'].includes(role)) {
-      return res.status(400).json({ message: 'Invalid role' });
-    }
+    // Validate role
+    const allowedRoles = ['admin', 'ceza', 'uye'];
+    const userRole = role && typeof role === 'string' && allowedRoles.includes(role) ? role : 'uye';
 
     const existingUser = await User.findOne({
-      $or: [{ username }, { email }],
+      $or: [{ username: sanitizedUsername }, { email: sanitizedEmail }],
     });
 
     if (existingUser) {
@@ -158,11 +331,11 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     const newUser = new User({
-      username,
-      email,
+      username: sanitizedUsername,
+      email: sanitizedEmail,
       password,
-      fullName,
-      role: role || 'uye',
+      fullName: sanitizedFullName,
+      role: userRole,
       isActive: true,
       lastActiveAt: new Date(),
     });
@@ -188,7 +361,7 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // Update user role (admin only)
-router.patch('/:id/role', authenticateToken, async (req, res) => {
+router.patch('/:id/role', authenticateToken, validateObjectId, async (req, res) => {
   try {
     const admin = await User.findById(req.user.userId);
     if (!admin) {
@@ -200,12 +373,19 @@ router.patch('/:id/role', authenticateToken, async (req, res) => {
     }
 
     const { role } = req.body;
-    if (!role) {
-      return res.status(400).json({ message: 'Role is required' });
+    if (!role || typeof role !== 'string') {
+      return res.status(400).json({ message: 'Role is required and must be a string' });
     }
     
-    if (!['admin', 'ceza', 'uye'].includes(role)) {
+    // Validate role to prevent injection
+    const allowedRoles = ['admin', 'ceza', 'uye'];
+    if (!allowedRoles.includes(role)) {
       return res.status(400).json({ message: 'Invalid role' });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid user ID format' });
     }
 
     const targetUser = await User.findById(req.params.id);
@@ -241,7 +421,7 @@ router.patch('/:id/role', authenticateToken, async (req, res) => {
 });
 
 // Delete user (admin only)
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authenticateToken, validateObjectId, async (req, res) => {
   try {
     const admin = await User.findById(req.user.userId);
     if (!admin) {
@@ -250,6 +430,11 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     if (admin.role !== 'admin') {
       return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid user ID format' });
     }
 
     const targetUser = await User.findById(req.params.id);

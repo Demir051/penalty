@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Container,
   Paper,
@@ -11,7 +11,9 @@ import {
   Avatar,
   Box,
   CircularProgress,
+  IconButton,
 } from '@mui/material';
+import { PhotoCamera, Edit } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 
@@ -23,11 +25,80 @@ const AccountSettings = () => {
   const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [loadingPassword, setLoadingPassword] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
-    setProfileImage(user?.profileImage || '');
-    setFullName(user?.fullName || '');
-  }, [user]);
+    if (user) {
+      // User'dan gelen profileImage'i state'e set et
+      const userProfileImage = user.profileImage || '';
+      setProfileImage(userProfileImage);
+      const userFullName = user.fullName || '';
+      setFullName(userFullName);
+    }
+  }, [user?.profileImage, user?.fullName]);
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setProfileMessage({ type: 'error', text: 'Sadece resim dosyaları seçilebilir' });
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileMessage({ type: 'error', text: 'Resim boyutu 5MB\'dan küçük olmalıdır' });
+      return;
+    }
+
+    handleImageUpload(file);
+  };
+
+  const handleImageUpload = async (file) => {
+    setUploadingImage(true);
+    setProfileMessage({ type: '', text: '' });
+
+    try {
+      const formData = new FormData();
+      formData.append('profileImage', file);
+
+      const response = await axios.post('/api/users/me/upload-profile-image', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      // Backend'den dönen profileImage URL'ini al
+      const uploadedImageUrl = response.data.profileImage || response.data.user?.profileImage;
+      
+      if (!uploadedImageUrl) {
+        throw new Error('Profil resmi URL\'i alınamadı');
+      }
+      
+      // State'i hemen güncelle (relative path olarak)
+      setProfileImage(uploadedImageUrl);
+      
+      // User context'ini güncelle (bu da profileImage'i güncelleyecek)
+      await refreshUser();
+      
+      setProfileMessage({ type: 'success', text: 'Profil resmi başarıyla yüklendi' });
+    } catch (error) {
+      console.error('Profile image upload error:', error);
+      setProfileMessage({
+        type: 'error',
+        text: error.response?.data?.message || 'Resim yüklenemedi',
+      });
+    } finally {
+      setUploadingImage(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
 
   const handleProfileSave = async () => {
     setProfileMessage({ type: '', text: '' });
@@ -84,7 +155,7 @@ const AccountSettings = () => {
           <Typography variant="h5" fontWeight="bold" gutterBottom>
             Profil
           </Typography>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Profil fotoğrafı ve ad soyad bilgisi.
           </Typography>
 
@@ -95,26 +166,79 @@ const AccountSettings = () => {
           )}
 
           <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-            <Avatar
-              src={profileImage || undefined}
-              sx={{ width: 64, height: 64 }}
-            >
-              {fullName?.[0]?.toUpperCase()}
-            </Avatar>
+            <Box sx={{ position: 'relative' }}>
+              <Avatar
+                src={
+                  profileImage 
+                    ? (() => {
+                        // Eğer absolute URL ise (http/https ile başlıyorsa) direkt kullan
+                        if (profileImage.startsWith('http://') || profileImage.startsWith('https://')) {
+                          return profileImage;
+                        }
+                        // Eğer data URL ise direkt kullan
+                        if (profileImage.startsWith('data:')) {
+                          return profileImage;
+                        }
+                        // Relative path ise full URL oluştur (backend'den gelen /uploads/... formatı)
+                        // Backend'de /uploads static file serving var, bu yüzden baseURL kullan
+                        const baseURL = axios.defaults.baseURL || window.location.origin;
+                        // Eğer zaten / ile başlıyorsa direkt ekle, değilse / ekle
+                        return profileImage.startsWith('/') 
+                          ? `${baseURL}${profileImage}`
+                          : `${baseURL}/${profileImage}`;
+                      })()
+                    : undefined
+                }
+                sx={{ width: 80, height: 80, cursor: uploadingImage ? 'wait' : 'pointer' }}
+                onClick={() => !uploadingImage && fileInputRef.current?.click()}
+              >
+                {fullName?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase()}
+              </Avatar>
+              <IconButton
+                sx={{
+                  position: 'absolute',
+                  bottom: 0,
+                  right: 0,
+                  bgcolor: 'primary.main',
+                  color: 'primary.contrastText',
+                  width: 28,
+                  height: 28,
+                  '&:hover': {
+                    bgcolor: 'primary.dark',
+                  },
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingImage}
+              >
+                {uploadingImage ? (
+                  <CircularProgress size={16} sx={{ color: 'inherit' }} />
+                ) : (
+                  <PhotoCamera sx={{ fontSize: 16 }} />
+                )}
+              </IconButton>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleFileSelect}
+              />
+            </Box>
             <Box sx={{ flex: 1 }}>
               <TextField
                 fullWidth
-                label="Profil Fotoğrafı URL"
+                label="Profil Fotoğrafı URL (İsteğe bağlı)"
                 value={profileImage}
                 onChange={(e) => setProfileImage(e.target.value)}
-                placeholder="https://..."
-                sx={{ mb: 1.5 }}
+                placeholder="https://... veya dosya yükleyin"
+                sx={{ mb: 3 }}
               />
               <TextField
                 fullWidth
                 label="Ad Soyad"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
+                required
               />
             </Box>
           </Stack>
